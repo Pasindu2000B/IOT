@@ -18,6 +18,7 @@ services:
     container_name: zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+    restart: always
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -32,6 +33,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     depends_on:
       - zookeeper
+    restart: always
 
   mqtt-kafka-bridge:
     build: ./mqtt-kafka-bridge
@@ -59,12 +61,12 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: Ruhuna_Eng
       DOCKER_INFLUXDB_INIT_BUCKET: New_Sensor
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
-
     restart: unless-stopped
 
-  spark:
-    image: bitnami/spark:3.5.1
-    container_name: spark
+  spark-streaming: 
+    build: ./spark-app
+    container_name: spark-streaming
+    user: root
     depends_on:
       - kafka
       - influxdb
@@ -75,18 +77,21 @@ services:
       INFLUX_TOKEN: GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
     volumes:
       - ./spark-app:/app
+      - ./checkpoints:/app/checkpoints
     ports:
       - "4040:4040"
-      - "8080:8080"
     command: >
-      bash -c "
-      pip install influxdb-client &&
       spark-submit
       --master local[*]
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,com.influxdb:influxdb-client-java:6.11.0
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
       /app/spark_stream.py
-      "
-    restart: unless-stopped
+    restart: unless-stopped 
 
 volumes:
   influxdb-data:
+  checkpoints:
+
+
+
+
+# GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
