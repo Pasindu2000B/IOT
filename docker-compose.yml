@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  
   mqtt-broker:
     image: eclipse-mosquitto:2.0
     container_name: mosquitto
@@ -12,13 +13,28 @@ services:
       - ./mqtt-broker/data:/mosquitto/data
       - ./mqtt-broker/log:/mosquitto/log
     restart: always
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "test", "-m", "test", "-u", "test", "-P", "test"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
+  
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper
+    ports:
+      - "2181:2181" 
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     restart: always
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -32,66 +48,77 @@ services:
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     restart: always
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
 
-  mqtt-kafka-bridge:
-    build: ./mqtt-kafka-bridge
-    container_name: mqtt-kafka-bridge
+  
+  kafka-connect:
+    container_name: kafka-connect
+    build: 
+      context: ./connect_image # Tells Docker to build from a local folder
+    ports:
+      - "8083:8083" # REST API for managing connectors
     depends_on:
-      - mqtt-broker
-      - kafka
+      kafka:
+        condition: service_healthy
+      mqtt-broker:
+        condition: service_healthy
     environment:
-      MQTT_BROKER: mqtt-broker
-      MQTT_PORT: 1883
-      KAFKA_BROKER: kafka:9092
-    restart: always
+      CONNECT_BOOTSTRAP_SERVERS: 'kafka:9092'
+      CONNECT_CONFLUENT_TOPIC_BOOTSTRAP_SERVERS: 'kafka:9092'
+      CONNECT_GROUP_ID: 'mqtt-connect-cluster'
+      CONNECT_CONFIG_STORAGE_TOPIC: 'mqtt-connect-configs'
+      CONNECT_OFFSET_STORAGE_TOPIC: 'mqtt-connect-offsets'
+      CONNECT_STATUS_STORAGE_TOPIC: 'mqtt-connect-status'
+      CONNECT_KEY_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
+      CONNECT_VALUE_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
+      CONNECT_INTERNAL_KEY_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
+      CONNECT_INTERNAL_VALUE_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
+      CONNECT_REST_ADVERTISED_HOST_NAME: 'kafka-connect'
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
 
+  
   influxdb:
     image: influxdb:2.7
     container_name: influxdb
     ports:
-      - "8086:8086"
+      - "8086:8086" 
     volumes:
-      - influxdb-data:/var/lib/influxdb2
+      - ./influxdb/data:/var/lib/influxdb2
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: "Pasindu Bimsara"
+      DOCKER_INFLUXDB_INIT_USERNAME: Pasindu Bimsara
       DOCKER_INFLUXDB_INIT_PASSWORD: abcdefgh
       DOCKER_INFLUXDB_INIT_ORG: Ruhuna_Eng
       DOCKER_INFLUXDB_INIT_BUCKET: New_Sensor
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
-    restart: unless-stopped
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  spark-streaming: 
-    build: ./spark-app
-    container_name: spark-streaming
-    user: root
-    depends_on:
-      - kafka
-      - influxdb
-    environment:
-      INFLUX_URL: http://influxdb:8086
-      INFLUX_ORG: Ruhuna_Eng
-      INFLUX_BUCKET: New_Sensor
-      INFLUX_TOKEN: GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
+  
+  telegraf:
+    image: telegraf:latest
+    container_name: telegraf
     volumes:
-      - ./spark-app:/app
-      - ./checkpoints:/app/checkpoints
-    ports:
-      - "4040:4040"
-    command: >
-      spark-submit
-      --master local[*]
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
-      /app/spark_stream.py
-    restart: unless-stopped 
-
-volumes:
-  influxdb-data:
-  checkpoints:
-
-
-
-
-# GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    environment:
+      INFLUX_TOKEN: GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
+    depends_on:
+      kafka:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    restart: always

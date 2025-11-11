@@ -1,36 +1,73 @@
+import paho.mqtt.client as mqtt
 import time
 import json
 import random
-import paho.mqtt.client as mqtt
 
-BROKER = "localhost"  # or "mqtt-broker" if running from inside docker
-PORT = 1883
-TOPIC_STATE = "lab/esp32/esp32-lab-01/state"
-TOPIC_SENSORS = "lab/esp32/esp32-lab-01/sensors"
 
-client = mqtt.Client()
+MQTT_BROKER_HOST = "localhost" 
+MQTT_BROKER_PORT = 1883
+MQTT_TOPIC = "machine_sensor_data"  
+CLIENT_ID = "data_generator_script"
 
-client.connect(BROKER, PORT, 60)
-print(f"Connected to MQTT broker at {BROKER}:{PORT}")
 
-try:
-    while True:
-        # Publish "online" state
-        client.publish(TOPIC_STATE, "online")
+SENSOR_WORKSPACES = ["lathe-1-spindle", "cnc-mill-5-axis", "robot-arm-02"]
 
-        # Simulate sensor payload
-        payload = {
-            "dhtA": {"ok": True, "t": round(random.uniform(20, 30), 1), "h": round(random.uniform(40, 60), 1)},
-            "dhtB": {"ok": True, "t": round(random.uniform(20, 30), 1), "h": round(random.uniform(40, 60), 1)},
-            "acc":  {"x": round(random.uniform(-2, 2), 2), "y": round(random.uniform(-2, 2), 2), "z": round(random.uniform(-2, 2), 2)}
-        }
+def generate_sensor_data():
+    
+    data = {
+        # --- These are your TAGS ---
+        "workspace_id": random.choice(SENSOR_WORKSPACES),
+        "sensor_type": "industrial",
 
-        client.publish(TOPIC_SENSORS, json.dumps(payload))
-        print(f"Published to {TOPIC_SENSORS}: {payload}")
+        # --- These are your FIELDS ---
+        "current": round(random.uniform(10.0, 25.0), 2),
+        "accX": round(random.uniform(-0.5, 0.5), 4),
+        "accY": round(random.uniform(-0.5, 0.5), 4),
+        "accZ": round(random.uniform(0.8, 1.2), 4),
+        "tempA": round(random.uniform(55.0, 80.0), 2),
+        "tempB": round(random.uniform(55.0, 80.0), 2)
+    }
+    return data
 
-        time.sleep(2)
+def connect_mqtt():
+    """Connects to the MQTT broker."""
+    client = mqtt.Client(client_id=CLIENT_ID)
+    client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT)
+    return client
 
-except KeyboardInterrupt:
-    print("Stopped publishing.")
-    client.publish(TOPIC_STATE, "offline")
-    client.disconnect()
+def run_simulator():
+    """Runs the main data generation loop."""
+    client = connect_mqtt()
+    client.loop_start()  # Starts a background thread to handle network
+    print(f"🚀 Started data generator.")
+    print(f"Publishing to topic: {MQTT_TOPIC}")
+    print(f"Broker: {MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}")
+    
+    try:
+        while True:
+            # 1. Generate new data
+            data = generate_sensor_data()
+            
+            # 2. Convert to JSON string
+            payload = json.dumps(data)
+            
+            # 3. Publish to MQTT
+            result = client.publish(MQTT_TOPIC, payload)
+            result.wait_for_publish() # Wait for publish to complete
+            
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                print(f"Published: {payload}")
+            else:
+                print(f"Failed to publish message: {result.rc}")
+
+            # 4. Wait for 2 seconds
+            time.sleep(2)
+
+    except KeyboardInterrupt:
+        print("\nShutting down generator.")
+    finally:
+        client.loop_stop()
+        client.disconnect()
+
+if __name__ == "__main__":
+    run_simulator()
