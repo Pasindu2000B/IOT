@@ -1,0 +1,6 @@
+# MQTT broker data and logs
+mqtt-broker/data/
+mqtt-broker/log/
+
+# InfluxDB data
+influxdb/data/
