@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   
-  mqtt-broker:
+  mosquitto:
     image: eclipse-mosquitto:2.0
     container_name: mosquitto
     ports:
@@ -20,78 +20,11 @@ services:
       retries: 3
       start_period: 10s
 
-  
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: zookeeper
-    ports:
-      - "2181:2181" 
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    restart: always
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: kafka
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-    restart: always
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 40s
-
-  
-  kafka-connect:
-    container_name: kafka-connect
-    build: 
-      context: ./connect_image # Tells Docker to build from a local folder
-    ports:
-      - "8083:8083" # REST API for managing connectors
-    depends_on:
-      kafka:
-        condition: service_healthy
-      mqtt-broker:
-        condition: service_healthy
-    environment:
-      CONNECT_BOOTSTRAP_SERVERS: 'kafka:9092'
-      CONNECT_CONFLUENT_TOPIC_BOOTSTRAP_SERVERS: 'kafka:9092'
-      CONNECT_GROUP_ID: 'mqtt-connect-cluster'
-      CONNECT_CONFIG_STORAGE_TOPIC: 'mqtt-connect-configs'
-      CONNECT_OFFSET_STORAGE_TOPIC: 'mqtt-connect-offsets'
-      CONNECT_STATUS_STORAGE_TOPIC: 'mqtt-connect-status'
-      CONNECT_KEY_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
-      CONNECT_VALUE_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
-      CONNECT_INTERNAL_KEY_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
-      CONNECT_INTERNAL_VALUE_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
-      CONNECT_REST_ADVERTISED_HOST_NAME: 'kafka-connect'
-      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
-
-  
   influxdb:
     image: influxdb:2.7
     container_name: influxdb
     ports:
-      - "8086:8086" 
+      - "8086:8086"
     volumes:
       - ./influxdb/data:/var/lib/influxdb2
     environment:
@@ -103,22 +36,72 @@ services:
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      test: ["CMD", "influx", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
-  
-  telegraf:
-    image: telegraf:latest
-    container_name: telegraf
-    volumes:
-      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+  spark-master:
+    image: apache/spark:3.4.1
+    container_name: spark-master
+    ports:
+      - "7077:7077"
+      - "8080:8080"
     environment:
-      INFLUX_TOKEN: GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
-    depends_on:
-      kafka:
-        condition: service_healthy
-      influxdb:
-        condition: service_healthy
+      SPARK_MODE: master
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     restart: always
+
+  spark-worker-1:
+    image: apache/spark:3.4.1
+    container_name: spark-worker-1
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_CORES: 2
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    restart: always
+
+  spark-worker-2:
+    image: apache/spark:3.4.1
+    container_name: spark-worker-2
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_CORES: 2
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    restart: always
+
+  training-scheduler:
+    image: apache/spark:3.4.1
+    container_name: training-scheduler
+    depends_on:
+      - spark-master
+      - influxdb
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+      - ./run_monthly_training.sh:/run_monthly_training.sh
+    command: >
+      bash -c "
+      apt-get update && apt-get install -y cron &&
+      echo '0 0 1 * * /usr/bin/bash /run_monthly_training.sh >> /var/log/training.log 2>&1' | crontab - &&
+      cron -f
+      "
+    restart: always
+
+networks:
+  default:
+    name: iot-network

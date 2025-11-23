@@ -32,6 +32,7 @@ def generate_sensor_data():
 def connect_mqtt():
     """Connects to the MQTT broker."""
     client = mqtt.Client(client_id=CLIENT_ID)
+    client.username_pw_set("test", "test")  # Set credentials
     client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT)
     return client
 
@@ -39,7 +40,8 @@ def run_simulator():
     """Runs the main data generation loop."""
     client = connect_mqtt()
     client.loop_start()  # Starts a background thread to handle network
-    print(f"🚀 Started data generator.")
+    time.sleep(2)  # Give the client time to connect
+    print(f"Started data generator.")
     print(f"Publishing to topic: {MQTT_TOPIC}")
     print(f"Broker: {MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}")
     

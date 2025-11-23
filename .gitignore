@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project specific - Data & Models
+spark-apps/logs/
+spark-apps/models/*.pt
+spark-apps/models/*.npz
+influxdb/data/
+mqtt-broker/data/
+mqtt-broker/log/
+
+# Logs
+logs/
+*.log
+*.log.*
+nohup.out
+
+# PID files
+*.pid
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+
+# Docker volumes
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.bak
+
+# OS specific
+Thumbs.db
+.DS_Store
