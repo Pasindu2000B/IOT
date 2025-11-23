@@ -69,13 +69,11 @@ chmod +x *.sh
 - `cnc-mill-5-axis`
 - `robot-arm-02`
 
-### Sensor Data (per workspace) - **UPDATED**
-- `temp_body` - Body temperature (°C) [55-80°C]
-- `temp_shaft` - Shaft temperature (°C) [55-80°C]
+### Sensor Data (per workspace)
 - `current` - Motor current (A) [10-25A]
-- `vibration_magnitude` - Combined vibration magnitude [0.5-2.5]
-
-**Note:** Old format (`accX/accY/accZ/tempA/tempB`) is no longer supported.
+- `accX, accY, accZ` - Vibration/Acceleration (g)
+- `tempA` - Temperature A (°C) [55-80°C]
+- `tempB` - Temperature B (°C) [55-80°C]
 
 ## 🧠 ML Model Details
 
@@ -83,6 +81,7 @@ chmod +x *.sh
 - **Model:** HuggingFace Transformers `PatchTSTForPrediction`
 - **Context Length:** 1200 timesteps (50 days of hourly data)
 - **Prediction Length:** 240 timesteps (10 days ahead)
+- **Features:** 6 sensors (current, accX, accY, accZ, tempA, tempB)
 - **Patch Length:** 12 timesteps
 - **Patch Stride:** 3 timesteps
 - **Model Dimension:** 256
@@ -186,12 +185,11 @@ IOT/
 # View bridge logs
 tail -f logs/bridge.log
 
-# Query InfluxDB for new format
+# Query InfluxDB
 docker exec influxdb influx query '
 from(bucket:"New_Sensor")
   |> range(start:-1h)
   |> filter(fn:(r) => r._measurement == "sensor_data")
-  |> filter(fn:(r) => r._field == "temp_body" or r._field == "vibration_magnitude")
   |> count()
 '
 ```
@@ -217,19 +215,12 @@ ls -lh spark-apps/models/model_*/
 1. Check MQTT broker: `docker logs mosquitto`
 2. Check bridge logs: `tail -f logs/bridge.log`
 3. Check data generator: `ps aux | grep GenerateData`
-4. Verify new field names: `temp_body`, `temp_shaft`, `current`, `vibration_magnitude`
 
 ### Training Fails
 1. Ensure 1440+ hourly data points collected per workspace
 2. Check Spark logs: `docker logs spark-master`
 3. Verify ML dependencies: `docker exec spark-master pip list | grep transformers`
 4. Check available memory: Training requires 2GB+ RAM per worker
-
-### Old Data Format
-If you have old data with `accX/accY/accZ/tempA/tempB`:
-- **Option 1:** Flush InfluxDB and start fresh
-- **Option 2:** Create new bucket for new format data
-- **Option 3:** See [NOTEBOOK_INTEGRATION_SUMMARY.md](NOTEBOOK_INTEGRATION_SUMMARY.md) for migration details
 
 ## 📝 Configuration
 

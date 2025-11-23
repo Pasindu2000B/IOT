@@ -36,8 +36,8 @@ INFLUXDB_BUCKET = "New_Sensor"
 MODEL_CONFIG = {
     "context_length": 1200,         # 50 days of hourly data
     "prediction_length": 240,        # 10 days of hourly predictions
-    "num_input_channels": 4,         # temp_body, temp_shaft, current, vibration_magnitude
-    "num_targets": 4,                # Same 4 features for output
+    "num_input_channels": 6,         # current, accX, accY, accZ, tempA, tempB
+    "num_targets": 6,                # Same 6 features for output
     "num_attention_heads": 4,
     "num_hidden_layers": 2,
     "patch_length": 12,
@@ -126,7 +126,7 @@ def load_workspace_data(workspace_id, hours_back=1):
     client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
     query_api = client.query_api()
     
-    # Query to get data for specific workspace (updated fields: temp_body, temp_shaft, current, vibration_magnitude)
+    # Query to get data for specific workspace
     query = f'''
     from(bucket: "{INFLUXDB_BUCKET}")
         |> range(start: -{hours_back}h)
@@ -143,10 +143,12 @@ def load_workspace_data(workspace_id, hours_back=1):
         for record in table.records:
             records.append({
                 'time': record.get_time(),
-                'temp_body': float(record.values.get('temp_body', 0)),
-                'temp_shaft': float(record.values.get('temp_shaft', 0)),
                 'current': float(record.values.get('current', 0)),
-                'vibration_magnitude': float(record.values.get('vibration_magnitude', 0))
+                'accX': float(record.values.get('accX', 0)),
+                'accY': float(record.values.get('accY', 0)),
+                'accZ': float(record.values.get('accZ', 0)),
+                'tempA': float(record.values.get('tempA', 0)),
+                'tempB': float(record.values.get('tempB', 0))
             })
     
     df = pd.DataFrame(records)
@@ -159,8 +161,8 @@ def prepare_sequences(df, context_length, prediction_length):
     # Sort by time
     df = df.sort_values('time').reset_index(drop=True)
     
-    # Extract features (temp_body, temp_shaft, current, vibration_magnitude)
-    features = df[['temp_body', 'temp_shaft', 'current', 'vibration_magnitude']].values
+    # Extract features (current, accX, accY, accZ, tempA, tempB)
+    features = df[['current', 'accX', 'accY', 'accZ', 'tempA', 'tempB']].values
     
     # Handle NaN values - replace with feature mean (matching notebook approach)
     for i in range(features.shape[1]):
