@@ -90,9 +90,9 @@ def get_spark_session():
     
     return spark
 
-def get_available_workspaces(hours_back=1):
+def get_available_workspaces(hours_back=720):
     """Query InfluxDB to get list of all workspaces with data"""
-    logger.info(f"🔍 Discovering workspaces from last {hours_back} hours...")
+    logger.info(f"🔍 Discovering workspaces from last {hours_back} hours ({hours_back/24:.1f} days)...")
     
     client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
     query_api = client.query_api()
@@ -121,8 +121,8 @@ def get_available_workspaces(hours_back=1):
     logger.info(f"✅ Found {len(workspaces)} workspaces: {workspaces}")
     return workspaces
 
-def load_workspace_data(workspace_id, hours_back=1):
-    """Load sensor data for a specific workspace from InfluxDB"""
+def load_workspace_data(workspace_id, hours_back=720):
+    """Load sensor data for a specific workspace from InfluxDB (default: 30 days)"""
     client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
     query_api = client.query_api()
     
@@ -157,7 +157,11 @@ def load_workspace_data(workspace_id, hours_back=1):
     return df
 
 def prepare_sequences(df, context_length, prediction_length):
-    """Prepare sliding window sequences for training using MinMaxScaler (matching notebook)"""
+    """Prepare sliding window sequences for training using MinMaxScaler (matching notebook)
+    
+    Handles sparse data: Only creates sequences from continuous data blocks.
+    If machine is down (no data), those time periods are automatically excluded.
+    """
     # Sort by time
     df = df.sort_values('time').reset_index(drop=True)
     
@@ -175,7 +179,9 @@ def prepare_sequences(df, context_length, prediction_length):
     scaler = MinMaxScaler(feature_range=(0, 1))
     features_normalized = scaler.fit_transform(features)
     
-    # Create sequences
+    # Create sequences (sliding window)
+    # Note: Only creates sequences from available data points
+    # Machine downtime (missing data) naturally creates fewer sequences
     X, y = [], []
     total_length = context_length + prediction_length
     
@@ -348,10 +354,10 @@ def train_workspace_model(workspace_info):
         logger.error(traceback.format_exc())
         return {'workspace_id': workspace_id, 'status': 'failed', 'error': str(e)}
 
-def train_all_workspaces_distributed(spark, workspaces, hours_back=1):
+def train_all_workspaces_distributed(spark, workspaces, hours_back=720):
     """Train models for all workspaces using Spark distributed processing"""
     logger.info("=" * 80)
-    logger.info(f"🚀 Starting distributed training for {len(workspaces)} workspaces")
+    logger.info(f"🚀 Starting distributed training for {len(workspaces)} workspaces (using {hours_back/24:.1f} days of data)")
     logger.info("=" * 80)
     
     # Prepare workspace data for distribution
@@ -397,15 +403,15 @@ def main():
     spark = get_spark_session()
     
     try:
-        # Get available workspaces
-        workspaces = get_available_workspaces(hours_back=1)
+        # Get available workspaces (30 days = 720 hours for monthly training)
+        workspaces = get_available_workspaces(hours_back=720)
         
         if not workspaces:
-            logger.warning("⚠️  No workspaces found with data in the last hour")
+            logger.warning("⚠️  No workspaces found with data in the last 30 days")
             return
         
-        # Train models using distributed processing
-        results = train_all_workspaces_distributed(spark, workspaces, hours_back=1)
+        # Train models using distributed processing (30 days of data)
+        results = train_all_workspaces_distributed(spark, workspaces, hours_back=720)
         
         logger.info("🎉 Distributed training complete!")
         
