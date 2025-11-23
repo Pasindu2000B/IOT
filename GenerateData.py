@@ -19,13 +19,11 @@ def generate_sensor_data():
         "workspace_id": random.choice(SENSOR_WORKSPACES),
         "sensor_type": "industrial",
 
-        # --- These are your FIELDS ---
+        # --- These are your FIELDS (matching notebook: temp_body, temp_shaft, current, vibration_magnitude) ---
+        "temp_body": round(random.uniform(55.0, 80.0), 2),      # Previously tempA
+        "temp_shaft": round(random.uniform(55.0, 80.0), 2),     # Previously tempB
         "current": round(random.uniform(10.0, 25.0), 2),
-        "accX": round(random.uniform(-0.5, 0.5), 4),
-        "accY": round(random.uniform(-0.5, 0.5), 4),
-        "accZ": round(random.uniform(0.8, 1.2), 4),
-        "tempA": round(random.uniform(55.0, 80.0), 2),
-        "tempB": round(random.uniform(55.0, 80.0), 2)
+        "vibration_magnitude": round(random.uniform(0.5, 2.5), 4)  # Combined vibration from X/Y/Z
     }
     return data
 

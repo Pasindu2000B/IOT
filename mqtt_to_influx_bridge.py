@@ -66,16 +66,14 @@ def on_message(client, userdata, msg):
         # Parse JSON payload
         payload = json.loads(msg.payload.decode())
         
-        # Create InfluxDB point
+        # Create InfluxDB point (updated field names: temp_body, temp_shaft, current, vibration_magnitude)
         point = Point("sensor_data") \
             .tag("workspace_id", payload.get("workspace_id", "unknown")) \
             .tag("sensor_type", payload.get("sensor_type", "unknown")) \
+            .field("temp_body", float(payload.get("temp_body", 0))) \
+            .field("temp_shaft", float(payload.get("temp_shaft", 0))) \
             .field("current", float(payload.get("current", 0))) \
-            .field("accX", float(payload.get("accX", 0))) \
-            .field("accY", float(payload.get("accY", 0))) \
-            .field("accZ", float(payload.get("accZ", 0))) \
-            .field("tempA", float(payload.get("tempA", 0))) \
-            .field("tempB", float(payload.get("tempB", 0)))
+            .field("vibration_magnitude", float(payload.get("vibration_magnitude", 0)))
         
         # Write to InfluxDB
         write_api.write(bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=point)

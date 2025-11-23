@@ -1,11 +1,13 @@
 # IOT Predictive Maintenance System
 
-**Distributed machine learning system for industrial equipment monitoring using MQTT, InfluxDB, and Apache Spark.**
+**Distributed machine learning system for industrial equipment monitoring using MQTT, InfluxDB, and Apache Spark with HuggingFace PatchTST model.**
+
+> **🆕 UPDATED:** System now uses research-proven PatchTST architecture from validated notebook. See [NOTEBOOK_INTEGRATION_SUMMARY.md](NOTEBOOK_INTEGRATION_SUMMARY.md) for complete details.
 
 ## 🎯 System Architecture
 
 ```
-Sensor Data (GenerateData.py)
+Sensor Data (GenerateData.py) - 4 features, hourly intervals
          ↓
     MQTT Broker (Eclipse Mosquitto)
          ↓
@@ -14,8 +16,11 @@ MQTT→InfluxDB Bridge (mqtt_to_influx_bridge.py)
     InfluxDB (Time-series database)
          ↓
 Spark Distributed Training (train_distributed.py)
+    ↓ HuggingFace PatchTST Model
+    ↓ Context: 1200 timesteps (50 days)
+    ↓ Prediction: 240 timesteps (10 days)
          ↓
-Per-Workspace Models (PyTorch models)
+Per-Workspace Models (saved via save_pretrained())
 ```
 
 ## 🚀 Quick Deployment
@@ -31,13 +36,17 @@ chmod +x *.sh
 .\deploy.ps1
 ```
 
-**Deployment time: 5-7 minutes** (fully automated)
+**First deployment time: 10-15 minutes** (includes Docker image build with ML dependencies)  
+**Subsequent deployments: 5-7 minutes** (uses cached images)
 
 ## 📦 What Gets Deployed
 
 - **MQTT Broker** - Eclipse Mosquitto 2.0 (port 1883)
 - **InfluxDB** - Time-series database (port 8086)
-- **Spark Cluster** - 1 Master + 2 Workers
+- **Spark Cluster** - 1 Master + 2 Workers (with ML dependencies)
+  - PyTorch 2.0.1
+  - Transformers 4.35.0
+  - Accelerate, Datasets, scikit-learn
 - **Data Generator** - Simulates 3 industrial workspaces
 - **MQTT Bridge** - Auto-reconnecting data pipeline
 - **Training Scheduler** - Monthly automated retraining
@@ -45,22 +54,51 @@ chmod +x *.sh
 ## ⚙️ System Features
 
 ### Production-Ready
+✅ **Research-proven model** - HuggingFace PatchTST from validated notebook  
 ✅ **Auto-reconnecting bridge** - 5 retries, exponential backoff  
 ✅ **Distributed training** - Spark parallelizes across workers  
 ✅ **Monthly automation** - Cron-scheduled retraining  
 ✅ **Per-workspace models** - Automatic workspace discovery  
 ✅ **Docker auto-restart** - All services recover from failures  
-✅ **Comprehensive logging** - Full monitoring and troubleshooting
+✅ **Comprehensive logging** - Full monitoring and troubleshooting  
+✅ **Early stopping** - Prevents overfitting (patience=5 epochs)  
+✅ **Gradient clipping** - Training stability (max_norm=1.0)
 
 ### Workspaces
 - `lathe-1-spindle`
 - `cnc-mill-5-axis`
 - `robot-arm-02`
 
-### Sensor Data (per workspace)
-- `current` - Motor current (A)
-- `accX, accY, accZ` - Vibration (g)
-- `tempA, tempB` - Temperatures (°C)
+### Sensor Data (per workspace) - **UPDATED**
+- `temp_body` - Body temperature (°C) [55-80°C]
+- `temp_shaft` - Shaft temperature (°C) [55-80°C]
+- `current` - Motor current (A) [10-25A]
+- `vibration_magnitude` - Combined vibration magnitude [0.5-2.5]
+
+**Note:** Old format (`accX/accY/accZ/tempA/tempB`) is no longer supported.
+
+## 🧠 ML Model Details
+
+### PatchTST Architecture
+- **Model:** HuggingFace Transformers `PatchTSTForPrediction`
+- **Context Length:** 1200 timesteps (50 days of hourly data)
+- **Prediction Length:** 240 timesteps (10 days ahead)
+- **Patch Length:** 12 timesteps
+- **Patch Stride:** 3 timesteps
+- **Model Dimension:** 256
+- **FFN Dimension:** 512
+- **Attention Heads:** 4
+- **Layers:** 2
+- **Dropout:** 0.1
+
+### Training Configuration
+- **Batch Size:** 128
+- **Learning Rate:** 1e-5
+- **Optimizer:** AdamW
+- **Epochs:** 20 (with early stopping)
+- **Gradient Clipping:** max_norm=1.0
+- **Validation Split:** 80/20
+- **Preprocessing:** MinMaxScaler(0, 1)
 
 ## 🔧 Management Commands
 
@@ -134,12 +172,12 @@ IOT/
 - Automatic workspace discovery
 
 ## 📊 Model Details
-
-- **Architecture**: Simplified PatchTST (Transformer-based)
-- **Context**: 60 timesteps (2 minutes)
-- **Prediction**: 30 timesteps (1 minute ahead)
-- **Training**: 20 epochs, distributed across Spark workers
-- **Storage**: One model per workspace + normalization stats
+### Model Requirements
+- **Minimum Data:** 1440 hourly data points per workspace (1 day)
+- **Recommended:** 2400+ points (100 days) for quality training
+- **Training Time:** 5-10 minutes per workspace
+- **Model Size:** 5-10MB per workspace (HuggingFace checkpoint)
+- **Storage:** Model directory + scaler pickle file per workspace
 
 ## 🔍 Monitoring
 
@@ -148,11 +186,12 @@ IOT/
 # View bridge logs
 tail -f logs/bridge.log
 
-# Query InfluxDB
+# Query InfluxDB for new format
 docker exec influxdb influx query '
 from(bucket:"New_Sensor")
   |> range(start:-1h)
   |> filter(fn:(r) => r._measurement == "sensor_data")
+  |> filter(fn:(r) => r._field == "temp_body" or r._field == "vibration_magnitude")
   |> count()
 '
 ```
@@ -162,8 +201,8 @@ from(bucket:"New_Sensor")
 # View training logs
 docker logs training-scheduler
 
-# List models
-ls -lh spark-apps/models/
+# List models (HuggingFace format)
+ls -lh spark-apps/models/model_*/
 ```
 
 ## 🛠️ Troubleshooting
@@ -178,11 +217,19 @@ ls -lh spark-apps/models/
 1. Check MQTT broker: `docker logs mosquitto`
 2. Check bridge logs: `tail -f logs/bridge.log`
 3. Check data generator: `ps aux | grep GenerateData`
+4. Verify new field names: `temp_body`, `temp_shaft`, `current`, `vibration_magnitude`
 
 ### Training Fails
-1. Ensure 2+ minutes of data collected
+1. Ensure 1440+ hourly data points collected per workspace
 2. Check Spark logs: `docker logs spark-master`
-3. Verify dependencies: `docker exec spark-master pip list`
+3. Verify ML dependencies: `docker exec spark-master pip list | grep transformers`
+4. Check available memory: Training requires 2GB+ RAM per worker
+
+### Old Data Format
+If you have old data with `accX/accY/accZ/tempA/tempB`:
+- **Option 1:** Flush InfluxDB and start fresh
+- **Option 2:** Create new bucket for new format data
+- **Option 3:** See [NOTEBOOK_INTEGRATION_SUMMARY.md](NOTEBOOK_INTEGRATION_SUMMARY.md) for migration details
 
 ## 📝 Configuration
 
