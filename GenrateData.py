@@ -8,6 +8,8 @@ MQTT_BROKER_HOST = "localhost"
 MQTT_BROKER_PORT = 1883
 MQTT_TOPIC = "machine_sensor_data"  
 CLIENT_ID = "data_generator_script"
+MQTT_USERNAME = "test"
+MQTT_PASSWORD = "test"
 
 
 SENSOR_WORKSPACES = ["lathe-1-spindle", "cnc-mill-5-axis", "robot-arm-02"]
@@ -32,6 +34,7 @@ def generate_sensor_data():
 def connect_mqtt():
     """Connects to the MQTT broker."""
     client = mqtt.Client(client_id=CLIENT_ID)
+    client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT)
     return client
 
