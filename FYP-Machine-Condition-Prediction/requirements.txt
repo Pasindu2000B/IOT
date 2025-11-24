@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+numpy
+
+python-dotenv
+pymongo
+
+torch
+matplotlib
+scikit-learn
+transformers
+pandas
+sendgrid
+influxdb-client
