@@ -13,7 +13,7 @@ import paho.mqtt.client as mqtt
 # MQTT Configuration
 MQTT_BROKER = "142.93.220.152"  # Your VM IP
 MQTT_PORT = 1883
-MQTT_TOPIC = "sensor/data"
+MQTT_TOPIC = "machine_sensor_data"
 
 # Workspace configurations
 WORKSPACES = [
