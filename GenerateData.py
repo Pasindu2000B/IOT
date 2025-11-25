@@ -169,15 +169,13 @@ class SensorDataGenerator:
                         anomaly_type = random.choice(["high_current", "vibration", "overheating"])
                         data = self.generate_anomaly_data(workspace, base_values, anomaly_type)
                         anomaly_counter += 1
-                        status = "⚠️  ANOMALY"
                     else:
                         data = self.generate_normal_data(workspace, base_values)
-                        status = "✅ NORMAL"
                     
                     # Publish
                     if self.publish_data(data):
                         count += 1
-                        print(f"{status} [{workspace}] Current: {data['current']}A, "
+                        print(f"[{workspace}] Current: {data['current']}A, "
                               f"Temp: {data['tempA']}°C, Acc: {data['accX']}/{data['accY']}/{data['accZ']}")
                 
                 # Wait for next interval

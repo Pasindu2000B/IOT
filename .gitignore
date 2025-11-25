@@ -62,10 +62,5 @@ docker-compose.override.yml
 Thumbs.db
 .DS_Store
 
-# Deployment scripts (keep local only)
-*.ps1
-*.sh
-
-# Documentation (keep local only)
-DEPLOYMENT*.md
-VM-FIX*.md
+# Automation scripts - NOW INCLUDED IN GIT
+# (Removed *.ps1 and *.sh blocks to allow automation scripts)
