@@ -2,7 +2,7 @@
 # Auto-start MQTT to InfluxDB Bridge on VM (Ubuntu)
 # This script runs continuously and auto-restarts on failure
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="/root/IOT/vm-automation"
 cd "$SCRIPT_DIR"
 
 echo "========================================================================"

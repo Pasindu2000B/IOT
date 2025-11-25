@@ -28,13 +28,14 @@ echo ""
 # Define paths
 SERVICE_NAME="mqtt-bridge"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-SCRIPT_DIR="$(pwd)"
+SCRIPT_DIR="/root/IOT/vm-automation"
 MQTT_BRIDGE_SCRIPT="${SCRIPT_DIR}/mqtt_to_influx_bridge_vm.py"
 
 # Check if script exists
 if [ ! -f "$MQTT_BRIDGE_SCRIPT" ]; then
     echo -e "${RED}❌ ERROR: MQTT bridge script not found: $MQTT_BRIDGE_SCRIPT${NC}"
-    echo "Make sure you're running this from the correct directory"
+    echo "Expected location: $MQTT_BRIDGE_SCRIPT"
+    echo "Current directory: $(pwd)"
     exit 1
 fi
 
