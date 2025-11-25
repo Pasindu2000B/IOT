@@ -29,8 +29,7 @@ coverage.xml
 
 # Project specific - Data & Models
 spark-apps/logs/
-spark-apps/models/*.pt
-spark-apps/models/*.npz
+spark-apps/models/
 influxdb/data/
 mqtt-broker/data/
 mqtt-broker/log/
@@ -57,7 +56,16 @@ docker-compose.override.yml
 # Temporary files
 *.tmp
 *.bak
+*.swp
 
 # OS specific
 Thumbs.db
 .DS_Store
+
+# Deployment scripts (keep local only)
+*.ps1
+*.sh
+
+# Documentation (keep local only)
+DEPLOYMENT*.md
+VM-FIX*.md

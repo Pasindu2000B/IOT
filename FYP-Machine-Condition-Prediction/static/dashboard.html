@@ -285,6 +285,20 @@
         <header>
             <h1>🏭 IOT Predictive Maintenance Dashboard</h1>
             <p class="subtitle">Real-time Machine Condition Monitoring & Anomaly Detection</p>
+            <div style="margin-top: 15px;">
+                <a href="/validation" style="
+                    display: inline-block;
+                    padding: 10px 25px;
+                    background: #667eea;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 8px;
+                    font-weight: bold;
+                    transition: background 0.3s;
+                " onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                    🎯 Model Validation (Predictions vs Actual)
+                </a>
+            </div>
         </header>
 
         <div class="status-bar">
@@ -383,37 +397,66 @@
         }
 
         // Create workspace card with predictions
-        function createWorkspaceCard(workspaceId, predictions) {
+        function createWorkspaceCard(workspaceId, predictionData) {
             const card = document.createElement('div');
             card.className = 'workspace-card';
             card.id = `card-${workspaceId}`;
 
-            // Calculate anomaly status
-            const avgAnomaly = predictions.anomaly_scores.reduce((a, b) => a + b, 0) / predictions.anomaly_scores.length;
-            const maxAnomaly = Math.max(...predictions.anomaly_scores);
+            // Extract the actual predictions - they're nested
+            const predictions = predictionData.predictions || predictionData;
+            
+            // Calculate anomaly status - handle both old and new API formats
+            let avgAnomaly = 0;
+            let maxAnomaly = 0;
+            
+            if (predictions.anomaly_scores && predictions.anomaly_scores.length > 0) {
+                avgAnomaly = predictions.anomaly_scores.reduce((a, b) => a + b, 0) / predictions.anomaly_scores.length;
+                maxAnomaly = Math.max(...predictions.anomaly_scores);
+            } else {
+                // Default to low anomaly if not provided
+                avgAnomaly = 0.1;
+                maxAnomaly = 0.1;
+            }
             
             let status = 'normal';
             let statusText = '✓ Normal';
-            if (maxAnomaly > 0.7) {
-                status = 'critical';
-                statusText = '⚠️ Critical';
-            } else if (maxAnomaly > 0.5) {
-                status = 'warning';
-                statusText = '⚡ Warning';
+            
+            // Use alert_status if available
+            if (predictionData.alert_status) {
+                statusText = predictionData.alert_status;
+                if (statusText.includes('Critical') || statusText.includes('High')) {
+                    status = 'critical';
+                    statusText = '⚠️ ' + statusText;
+                } else if (statusText.includes('Warning') || statusText.includes('Medium')) {
+                    status = 'warning';
+                    statusText = '⚡ ' + statusText;
+                } else {
+                    status = 'normal';
+                    statusText = '✓ ' + statusText;
+                }
+            } else {
+                // Fall back to anomaly scores
+                if (maxAnomaly > 0.7) {
+                    status = 'critical';
+                    statusText = '⚠️ Critical';
+                } else if (maxAnomaly > 0.5) {
+                    status = 'warning';
+                    statusText = '⚡ Warning';
+                }
             }
 
-            // Get latest values (last prediction)
-            const latestIdx = predictions.current.length - 1;
-            const current = predictions.current[latestIdx].toFixed(2);
-            const tempA = predictions.tempA[latestIdx].toFixed(1);
-            const tempB = predictions.tempB[latestIdx].toFixed(1);
-            const accX = predictions.accX[latestIdx].toFixed(4);
-            const accY = predictions.accY[latestIdx].toFixed(4);
-            const accZ = predictions.accZ[latestIdx].toFixed(4);
+            // Get latest values (last prediction) - access nested predictions
+            const latestIdx = predictions.current ? predictions.current.length - 1 : 0;
+            const current = predictions.current ? predictions.current[latestIdx].toFixed(2) : 'N/A';
+            const tempA = predictions.tempA ? predictions.tempA[latestIdx].toFixed(1) : 'N/A';
+            const tempB = predictions.tempB ? predictions.tempB[latestIdx].toFixed(1) : 'N/A';
+            const accX = predictions.accX ? predictions.accX[latestIdx].toFixed(4) : 'N/A';
+            const accY = predictions.accY ? predictions.accY[latestIdx].toFixed(4) : 'N/A';
+            const accZ = predictions.accZ ? predictions.accZ[latestIdx].toFixed(4) : 'N/A';
 
             // Calculate trends (compare first vs last prediction)
-            const currentTrend = calculateTrend(predictions.current);
-            const tempTrend = calculateTrend(predictions.tempA);
+            const currentTrend = predictions.current ? calculateTrend(predictions.current) : {text: '—', class: ''};
+            const tempTrend = predictions.tempA ? calculateTrend(predictions.tempA) : {text: '—', class: ''};
 
             card.innerHTML = `
                 <div class="workspace-header">
@@ -476,39 +519,52 @@
                 charts[workspaceId].destroy();
             }
 
+            // Check if predictions data exists
+            if (!predictions.current || !predictions.current.length) {
+                console.warn(`No prediction data for ${workspaceId}`);
+                return;
+            }
+
             const timesteps = Array.from({length: predictions.current.length}, (_, i) => `T+${i+1}`);
+
+            // Build datasets array conditionally
+            const datasets = [
+                {
+                    label: 'Current (A)',
+                    data: predictions.current,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Temperature A (°C)',
+                    data: predictions.tempA,
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    tension: 0.4,
+                    yAxisID: 'y1'
+                }
+            ];
+
+            // Add anomaly scores if available
+            if (predictions.anomaly_scores && predictions.anomaly_scores.length > 0) {
+                datasets.push({
+                    label: 'Anomaly Score',
+                    data: predictions.anomaly_scores,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    tension: 0.4,
+                    borderDash: [5, 5],
+                    yAxisID: 'y2'
+                });
+            }
 
             charts[workspaceId] = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: timesteps,
-                    datasets: [
-                        {
-                            label: 'Current (A)',
-                            data: predictions.current,
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: 'Temperature A (°C)',
-                            data: predictions.tempA,
-                            borderColor: '#ef4444',
-                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y1'
-                        },
-                        {
-                            label: 'Anomaly Score',
-                            data: predictions.anomaly_scores,
-                            borderColor: '#f59e0b',
-                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                            tension: 0.4,
-                            borderDash: [5, 5],
-                            yAxisID: 'y2'
-                        }
-                    ]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,

@@ -64,6 +64,14 @@ def get_latest_predictions(workspace_id: str):
         "message": "Predictions show next 10 timesteps for all 6 sensor features"
     }
 
+@app.get("/validate/{workspace_id}")
+def validate_model(workspace_id: str):
+    """
+    Validate model accuracy by comparing predictions against actual future data.
+    Shows error metrics (MAE, RMSE, MAPE) to prove model is working correctly.
+    """
+    validation = streamer.validate_workspace_model(workspace_id)
+    return validation
 
 @app.on_event("startup")
 def start_background_stream():
@@ -90,6 +98,25 @@ def root():
                 <h1>IOT Predictive Maintenance API</h1>
                 <p>Dashboard not found. Please check if static/dashboard.html exists.</p>
                 <p><a href="/docs">View API Documentation</a></p>
+            </body>
+        </html>
+        """
+
+@app.get("/validation", response_class=HTMLResponse)
+def validation_page():
+    """
+    Serve the validation page to compare predictions vs actual data.
+    """
+    validation_path = os.path.join(os.path.dirname(__file__), "static", "validation.html")
+    if os.path.exists(validation_path):
+        with open(validation_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    else:
+        return """
+        <html>
+            <body style="font-family: Arial; padding: 50px; text-align: center;">
+                <h1>Validation Page Not Found</h1>
+                <p><a href="/">Back to Dashboard</a></p>
             </body>
         </html>
         """

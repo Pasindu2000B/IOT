@@ -2,9 +2,19 @@
 
 import time
 import pandas as pd
+import os
 from influxdb_client import InfluxDBClient
 from services.inference_service import InferenceService
-from configs.mongodb_config import influx_url, influx_token, influx_org, influx_bucket
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
+# Get InfluxDB config from environment
+influx_url = os.getenv("INFLUX_URL", "http://localhost:8086")
+influx_token = os.getenv("INFLUX_TOKEN")
+influx_org = os.getenv("INFLUX_ORG", "Ruhuna_Eng")
+influx_bucket = os.getenv("INFLUX_BUCKET", "New_Sensor")
 
 class RealInfluxStreamer:
     def __init__(self, interval_seconds=60, lookback_minutes=10):
@@ -54,14 +64,20 @@ class RealInfluxStreamer:
             print(f"[RealInfluxStreamer] Error discovering workspaces: {e}")
             return []
     
-    def _fetch_workspace_data(self, workspace_id):
+    def _fetch_workspace_data(self, workspace_id, lookback_override=None):
         """
         Fetch raw sensor data directly from InfluxDB for a workspace.
         Returns pandas DataFrame with columns: [timestamp, current, accX, accY, accZ, tempA, tempB]
+        
+        Args:
+            workspace_id: The workspace to fetch data for
+            lookback_override: Override the default lookback time (in minutes)
         """
+        lookback = lookback_override if lookback_override else self.lookback_minutes
+        
         query = f'''
         from(bucket: "{self.influx_bucket}")
-          |> range(start: -{self.lookback_minutes}m)
+          |> range(start: -{lookback}m)
           |> filter(fn: (r) => r._measurement == "sensor_data")
           |> filter(fn: (r) => r.workspace_id == "{workspace_id}")
           |> pivot(
@@ -150,4 +166,24 @@ class RealInfluxStreamer:
     def get_available_workspaces(self):
         """Return list of available workspaces with loaded models"""
         return self.inference_service.get_available_workspaces()
-
+    
+    def validate_workspace_model(self, workspace_id):
+        """
+        Validate a workspace model by comparing predictions vs actual data.
+        Uses historical data to test model accuracy.
+        """
+        # Fetch enough data for validation (need at least 60 points: 50 context + 10 prediction)
+        # Try progressively longer lookback times if needed
+        for lookback_minutes in [3, 5, 10, 30]:
+            data = self._fetch_workspace_data(workspace_id, lookback_override=lookback_minutes)
+            
+            if data is not None and len(data) >= 60:
+                print(f"[Validation] Using {len(data)} data points from last {lookback_minutes} minutes")
+                return self.inference_service.validate_model(workspace_id, data)
+        
+        # If still not enough data, return error with details
+        data_count = len(data) if data is not None else 0
+        return {
+            "status": "error", 
+            "message": f"Insufficient data for validation. Found {data_count} points, need at least 60. Data may be too recent or sparse."
+        }

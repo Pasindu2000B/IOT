@@ -6,11 +6,11 @@ import torch
 import pickle
 import os
 import glob
-from bson import ObjectId
 from datetime import datetime
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
-from configs.mongodb_config import get_database, workspace_id
+# MongoDB and email disabled for direct InfluxDB inference
+# from bson import ObjectId
+# from sendgrid import SendGridAPIClient
+# from sendgrid.helpers.mail import Mail
 
 class InferenceService:
     def __init__(self):
@@ -102,11 +102,11 @@ class InferenceService:
                 self.scalers[workspace_id] = scaler
                 self.model_timestamps[workspace_id] = os.path.getctime(latest_model_dir)
                 
-                print(f"[InferenceService] ✓ Loaded model for workspace: {workspace_id}")
+                print(f"[InferenceService] Loaded model for workspace: {workspace_id}")
                 print(f"                    Model: {os.path.basename(latest_model_dir)}")
                 
             except Exception as e:
-                print(f"[InferenceService] ✗ Failed to load model for {workspace_id}: {e}")
+                print(f"[InferenceService] Failed to load model for {workspace_id}: {e}")
         
         print(f"[InferenceService] Total models loaded: {len(self.models)}")
     
@@ -314,4 +314,85 @@ class InferenceService:
             "predictions": predictions_by_feature,
             "prediction_horizon": len(forecast),
             "note": "Predictions show next 10 timesteps (~20 seconds at 2s/sample)"
+        }
+    
+    def validate_model(self, workspace_id, influx_data):
+        """
+        Validate model by comparing predictions against actual future data.
+        
+        Args:
+            workspace_id: The workspace to validate
+            influx_data: DataFrame with at least context_length + prediction_length rows
+            
+        Returns:
+            dict with predictions, actual values, and error metrics
+        """
+        if workspace_id not in self.models:
+            return {"status": "error", "message": f"No model for {workspace_id}"}
+        
+        context_length = 50
+        prediction_length = 10
+        
+        if len(influx_data) < context_length + prediction_length:
+            return {"status": "error", "message": f"Need at least {context_length + prediction_length} data points"}
+        
+        model = self.models[workspace_id]
+        scaler = self.scalers[workspace_id]
+        feature_names = ['current', 'accX', 'accY', 'accZ', 'tempA', 'tempB']
+        
+        # Take context from the data (excluding last prediction_length points)
+        context_data = influx_data[-(context_length + prediction_length):-prediction_length]
+        actual_future = influx_data[-prediction_length:]
+        
+        # Scale context
+        raw_context = context_data[feature_names].values
+        scaled_context = scaler.transform(raw_context)
+        scaled_context = np.clip(scaled_context, 0, 1)
+        
+        # Get predictions
+        input_tensor = torch.tensor(scaled_context.reshape(1, context_length, 6), dtype=torch.float32).to(self.device)
+        
+        with torch.no_grad():
+            outputs = model(past_values=input_tensor)
+            predictions = outputs.prediction_outputs.squeeze().cpu().numpy()
+        
+        # Scale actual future data
+        actual_scaled = scaler.transform(actual_future[feature_names].values)
+        actual_scaled = np.clip(actual_scaled, 0, 1)
+        
+        # Calculate error metrics for each feature
+        metrics = {}
+        predictions_by_feature = {}
+        actuals_by_feature = {}
+        
+        for idx, feature in enumerate(feature_names):
+            pred = predictions[:, idx]
+            actual = actual_scaled[:, idx]
+            
+            # Calculate metrics
+            mae = np.mean(np.abs(pred - actual))
+            rmse = np.sqrt(np.mean((pred - actual) ** 2))
+            mape = np.mean(np.abs((actual - pred) / (actual + 1e-8))) * 100
+            
+            metrics[feature] = {
+                "MAE": float(mae),
+                "RMSE": float(rmse),
+                "MAPE": float(mape)
+            }
+            
+            predictions_by_feature[feature] = pred.tolist()
+            actuals_by_feature[feature] = actual.tolist()
+        
+        # Overall accuracy (average MAPE)
+        avg_mape = np.mean([m["MAPE"] for m in metrics.values()])
+        accuracy = max(0, 100 - avg_mape)
+        
+        return {
+            "status": "success",
+            "workspace_id": workspace_id,
+            "predictions": predictions_by_feature,
+            "actuals": actuals_by_feature,
+            "metrics": metrics,
+            "overall_accuracy": float(accuracy),
+            "note": "Validation compares model predictions against actual future values"
         }

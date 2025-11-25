@@ -26,8 +26,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# InfluxDB configuration
-INFLUXDB_URL = "http://influxdb:8086"  # Use Docker service name for containers
+# InfluxDB configuration - Connect to VM from local PC
+INFLUXDB_URL = "http://142.93.220.152:8086"  # VM IP address
 INFLUXDB_TOKEN = "GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q=="
 INFLUXDB_ORG = "Ruhuna_Eng"
 INFLUXDB_BUCKET = "New_Sensor"
@@ -49,17 +49,17 @@ MODEL_CONFIG = {
     "scaling": None  # We'll use MinMaxScaler instead
 }
 
-# Training configuration (REDUCED FOR TESTING)
+# Training configuration (OPTIMIZED FOR QUICK TESTING)
 TRAINING_CONFIG = {
-    "batch_size": 16,                # Reduced from 128 for smaller dataset
-    "num_epochs": 5,                 # Reduced from 20 for quick testing
-    "learning_rate": 1e-4,           # Increased from 1e-5 for faster convergence
+    "batch_size": 8,                 # Small batch for quick training
+    "num_epochs": 2,                 # Just 2 epochs for quick test
+    "learning_rate": 1e-3,           # Higher LR for faster convergence
     "max_grad_norm": 1.0,
-    "early_stopping_patience": 3     # Reduced from 5
+    "early_stopping_patience": 2
 }
 
 # Minimum data points required per workspace to train (context + prediction)
-MIN_DATA_POINTS = 100  # Reduced for testing with limited data
+MIN_DATA_POINTS = 60  # Just need enough for context_length (50) + some extra
 
 class SimplePatchTST(nn.Module):
     """
@@ -72,13 +72,25 @@ def get_spark_session():
     """Initialize Spark session with proper configuration"""
     logger.info("🔧 Initializing Spark session...")
     
+    # Set Python 3.11 path for Spark workers
+    python311_path = r"C:\Users\Asus\AppData\Local\Programs\Python\Python311\python.exe"
+    
+    os.environ['PYSPARK_PYTHON'] = python311_path
+    os.environ['PYSPARK_DRIVER_PYTHON'] = python311_path
+    
+    logger.info(f"   Using Python: {python311_path}")
+    
     conf = SparkConf() \
         .setAppName("Multi-Workspace-Model-Training") \
-        .set("spark.executor.memory", "1g") \
-        .set("spark.driver.memory", "1g") \
+        .set("spark.executor.memory", "2g") \
+        .set("spark.driver.memory", "2g") \
         .set("spark.executor.cores", "2") \
         .set("spark.task.cpus", "1") \
-        .set("spark.python.worker.reuse", "true")
+        .set("spark.python.worker.reuse", "false") \
+        .set("spark.pyspark.python", python311_path) \
+        .set("spark.pyspark.driver.python", python311_path) \
+        .set("spark.python.worker.faulthandler.enabled", "true") \
+        .set("spark.sql.execution.pyspark.udf.faulthandler.enabled", "true")
     
     spark = SparkSession.builder \
         .config(conf=conf) \
@@ -90,9 +102,9 @@ def get_spark_session():
     
     return spark
 
-def get_available_workspaces(hours_back=2):
+def get_available_workspaces(hours_back=1):
     """Query InfluxDB to get list of all workspaces with data"""
-    logger.info(f"🔍 Discovering workspaces from last {hours_back} hours ({hours_back/24:.1f} days)...")
+    logger.info(f"🔍 Discovering workspaces from last {hours_back} hours...")
     
     client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
     query_api = client.query_api()
@@ -195,6 +207,19 @@ def prepare_sequences(df, context_length, prediction_length):
 
 def train_workspace_model(workspace_info):
     """Train model for a single workspace using HuggingFace PatchTST - executed on Spark worker"""
+    # Import inside function to ensure availability in Spark worker
+    import logging
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, TensorDataset
+    from transformers import PatchTSTConfig, PatchTSTForPrediction
+    import numpy as np
+    from datetime import datetime
+    import pickle
+    import os
+    
+    logger = logging.getLogger(__name__)
+    
     workspace_id = workspace_info['workspace_id']
     hours_back = workspace_info['hours_back']
     

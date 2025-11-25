@@ -1,5 +1,158 @@
 # IOT Predictive Maintenance System
 
+Real-time machine condition monitoring and anomaly detection using PatchTST transformer models.
+
+## 📁 Project Structure
+
+```
+IOT/
+├── FYP-Machine-Condition-Prediction/     # Main inference application
+│   ├── main.py                           # FastAPI server
+│   ├── add_colab_model.py                # Helper to add Colab models
+│   ├── MODEL_SETUP.md                    # Model setup guide
+│   ├── services/                         # Core services
+│   │   ├── inference_service.py          # Model loading & inference
+│   │   └── real_influx_streamer.py       # InfluxDB data streaming
+│   ├── static/                           # Web dashboard
+│   │   ├── dashboard.html                # Main monitoring dashboard
+│   │   └── validation.html               # Model validation page
+│   └── FYP-Machine-Condition-Prediction/ # Trained models
+│       ├── model_{workspace}_{timestamp}/ # PatchTST model folders
+│       └── scaler_{workspace}_{timestamp}.pkl # MinMaxScaler files
+│
+├── spark-apps/                           # Distributed training
+│   ├── train_distributed.py             # Spark-based model training
+│   └── run-spark-training.ps1           # Training script
+│
+├── mqtt-broker/                          # MQTT configuration
+│   └── config/mosquitto.conf
+│
+├── influxdb/                             # InfluxDB data storage
+│
+├── docker-compose.yml                    # VM services (MQTT + InfluxDB)
+├── GenerateData.py                       # Test data generator
+└── mqtt_to_influx_bridge_vm.py          # MQTT → InfluxDB bridge
+```
+
+## 🚀 Quick Start
+
+### 1. Start VM Services (on server: 142.93.220.152)
+```bash
+docker-compose up -d
+```
+
+### 2. Start Data Bridge (on local PC)
+```bash
+python mqtt_to_influx_bridge_vm.py
+```
+
+### 3. Start Inference Server (on local PC)
+```bash
+cd FYP-Machine-Condition-Prediction
+python main.py
+```
+
+### 4. Access Dashboards
+- Main Dashboard: http://localhost:8000
+- Model Validation: http://localhost:8000/validation
+- API Docs: http://localhost:8000/docs
+
+## 🔧 Configuration
+
+### Environment Variables (.env)
+```env
+INFLUX_URL=http://142.93.220.152:8086
+INFLUX_TOKEN=your-token
+INFLUX_ORG=Ruhuna_Eng
+INFLUX_BUCKET=New_Sensor
+```
+
+### VM Services
+- **MQTT Broker**: 142.93.220.152:1883 (mosquitto)
+- **InfluxDB**: 142.93.220.152:8086 (v2.7)
+
+## 📊 Adding Your Trained Model
+
+See [MODEL_SETUP.md](FYP-Machine-Condition-Prediction/MODEL_SETUP.md) for detailed instructions.
+
+**Quick steps:**
+1. Save model in Colab with correct naming
+2. Copy to `FYP-Machine-Condition-Prediction/FYP-Machine-Condition-Prediction/`
+3. Restart inference server
+
+## 🎯 Training New Models
+
+```bash
+cd spark-apps
+py -3.11 train_distributed.py
+```
+
+Requires Python 3.11 for Spark compatibility.
+
+## 🌐 API Endpoints
+
+- `GET /` - Main dashboard
+- `GET /validation` - Model validation page
+- `GET /workspaces` - List available models
+- `GET /predict/{workspace_id}` - Get predictions
+- `GET /validate/{workspace_id}` - Validate model accuracy
+
+## 📈 Features
+
+- **Real-time Monitoring**: 60-second inference cycles
+- **Multi-workspace Support**: Independent models per machine
+- **Anomaly Detection**: Automatic alert generation
+- **Model Validation**: Compare predictions vs actual data
+- **Distributed Training**: Spark-based parallel training
+- **Interactive Dashboards**: Live charts and metrics
+
+## 🛠️ Tech Stack
+
+- **ML Framework**: HuggingFace Transformers (PatchTST)
+- **Backend**: FastAPI + Uvicorn
+- **Training**: Apache Spark 4.0.1 + PySpark
+- **Time Series DB**: InfluxDB 2.7
+- **Message Broker**: Eclipse Mosquitto 2.0
+- **Frontend**: Chart.js + Vanilla JS
+- **Data Processing**: NumPy, Pandas, PyTorch
+
+## 📝 Model Details
+
+- **Architecture**: PatchTST (Patch Time Series Transformer)
+- **Context Length**: 50 timesteps (100 seconds)
+- **Prediction Horizon**: 10 timesteps (20 seconds)
+- **Features**: 6 sensors (current, accX, accY, accZ, tempA, tempB)
+- **Sampling Rate**: 2 seconds per reading
+
+## 🔍 Troubleshooting
+
+**Server won't start:**
+- Check if port 8000 is available
+- Verify .env file exists with correct credentials
+
+**No predictions:**
+- Ensure workspace_id matches model name exactly
+- Check InfluxDB has data for the workspace
+- Verify at least 50 data points available
+
+**Validation fails:**
+- Need 60+ data points (50 context + 10 prediction)
+- Let data accumulate for a few minutes
+
+## 📚 Documentation
+
+- [Model Setup Guide](FYP-Machine-Condition-Prediction/MODEL_SETUP.md)
+- API Documentation: http://localhost:8000/docs (when server running)
+
+## 🎓 Academic Use
+
+This system demonstrates:
+- Transformer models for time series forecasting
+- Distributed machine learning with Spark
+- Real-time IoT data processing
+- Predictive maintenance in industrial settings
+
+
 **Distributed machine learning system for industrial equipment monitoring using MQTT, InfluxDB, and Apache Spark with HuggingFace PatchTST model.**
 
 > **🆕 UPDATED:** System now uses research-proven PatchTST architecture from validated notebook. See [NOTEBOOK_INTEGRATION_SUMMARY.md](NOTEBOOK_INTEGRATION_SUMMARY.md) for complete details.
