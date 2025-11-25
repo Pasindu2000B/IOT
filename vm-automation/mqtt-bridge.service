@@ -1,0 +1,24 @@
+[Unit]
+Description=MQTT to InfluxDB Bridge Service
+After=network.target influxdb.service mosquitto.service
+Wants=influxdb.service mosquitto.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/IOT
+ExecStart=/usr/bin/python3 /root/IOT/mqtt_to_influx_bridge_vm.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables (if needed)
+# Environment="PYTHONUNBUFFERED=1"
+
+# Resource limits (optional)
+MemoryLimit=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
