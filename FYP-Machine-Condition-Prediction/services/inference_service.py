@@ -7,6 +7,8 @@ import pickle
 import os
 import glob
 from datetime import datetime
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 # MongoDB and email disabled for direct InfluxDB inference
 # from bson import ObjectId
 # from sendgrid import SendGridAPIClient
@@ -34,6 +36,29 @@ class InferenceService:
         self.db = None
         self.users_collection = None
         self.workspaces_collection = None
+        
+        # InfluxDB configuration for anomaly logging
+        self.influx_url = os.getenv("INFLUX_URL", "http://142.93.220.152:8086")
+        self.influx_token = os.getenv("INFLUX_TOKEN")
+        self.influx_org = os.getenv("INFLUX_ORG", "Ruhuna_Eng")
+        self.influx_bucket = os.getenv("INFLUX_BUCKET", "New_Sensor")
+        self.anomaly_bucket = os.getenv("ANOMALY_BUCKET", "Anomalies")  # Separate bucket for anomalies
+        
+        # Initialize InfluxDB client for anomaly logging
+        if self.influx_token:
+            try:
+                self.influx_client = InfluxDBClient(url=self.influx_url, token=self.influx_token, org=self.influx_org)
+                self.write_api = self.influx_client.write_api(write_options=SYNCHRONOUS)
+                print(f"[InferenceService] InfluxDB anomaly logging enabled: {self.influx_url}")
+                print(f"[InferenceService] Anomalies will be logged to bucket: {self.anomaly_bucket}")
+            except Exception as e:
+                print(f"[InferenceService] Failed to connect to InfluxDB for anomaly logging: {e}")
+                self.influx_client = None
+                self.write_api = None
+        else:
+            print("[InferenceService] WARNING: INFLUX_TOKEN not set, anomaly logging disabled")
+            self.influx_client = None
+            self.write_api = None
     
     def _load_all_workspace_models(self):
         """Discover and load models for all available workspaces"""
@@ -196,7 +221,22 @@ class InferenceService:
         
         print(f"[Inference] Alert for {workspace_id}: '{alert_message}'")
         
-        # Step 7: Send email if at risk (from notebook Cell 10)
+        # Step 7: Log anomaly to InfluxDB if detected
+        if overall_at_risk:
+            # Prepare actual and predicted values for logging
+            actual_values = {feature_names[i]: float(scaled_data[-1, i]) for i in range(num_features)}
+            predicted_values = {feature_names[i]: float(forecast[0, i]) for i in range(num_features)}
+            
+            self._log_anomaly_to_influxdb(
+                workspace_id=workspace_id,
+                at_risk_features=at_risk_features,
+                alert_message=alert_message,
+                timestamp=current_time,
+                actual_values=actual_values,
+                predicted_values=predicted_values
+            )
+        
+        # Step 8: Send email if at risk (from notebook Cell 10)
         # if overall_at_risk:
         #     to_email = "aadhiganegoda@gmail.com"
         #     from_email = "thisupun3@gmail.com"
@@ -396,3 +436,72 @@ class InferenceService:
             "overall_accuracy": float(accuracy),
             "note": "Validation compares model predictions against actual future values"
         }
+    
+    def _log_anomaly_to_influxdb(self, workspace_id, at_risk_features, alert_message, timestamp, actual_values, predicted_values):
+        """
+        Log detected anomaly to InfluxDB in separate 'Anomalies' bucket
+        
+        Args:
+            workspace_id: Workspace where anomaly detected
+            at_risk_features: List of features that triggered anomaly
+            alert_message: Human-readable alert message
+            timestamp: Detection timestamp
+            actual_values: Dict of actual sensor values {feature: value}
+            predicted_values: Dict of predicted sensor values {feature: value}
+        """
+        if not self.write_api:
+            print("[Inference] Anomaly logging disabled (no InfluxDB connection)")
+            return
+        
+        try:
+            # Calculate severity for each at-risk feature
+            severities = {}
+            for feature in at_risk_features:
+                actual = actual_values.get(feature, 0)
+                predicted = predicted_values.get(feature, 0)
+                # Severity = relative difference
+                if predicted != 0:
+                    severity = abs((actual - predicted) / predicted)
+                else:
+                    severity = abs(actual - predicted)
+                severities[feature] = severity
+            
+            # Overall severity (max of all at-risk features)
+            max_severity = max(severities.values()) if severities else 0
+            
+            # Primary anomaly type (feature with highest severity)
+            primary_anomaly = max(severities, key=severities.get) if severities else "unknown"
+            
+            # Build InfluxDB point
+            point = Point("anomaly_detections") \
+                .tag("workspace_id", workspace_id) \
+                .tag("anomaly_type", primary_anomaly) \
+                .tag("severity_level", "high" if max_severity > 0.5 else "medium" if max_severity > 0.3 else "low") \
+                .field("severity_score", float(max_severity)) \
+                .field("alert_message", alert_message) \
+                .field("affected_features", ",".join(at_risk_features))
+            
+            # Add actual values
+            for feature, value in actual_values.items():
+                point.field(f"actual_{feature}", float(value))
+            
+            # Add predicted values
+            for feature, value in predicted_values.items():
+                point.field(f"predicted_{feature}", float(value))
+            
+            # Add deviations for at-risk features
+            for feature in at_risk_features:
+                actual = actual_values.get(feature, 0)
+                predicted = predicted_values.get(feature, 0)
+                deviation = actual - predicted
+                point.field(f"deviation_{feature}", float(deviation))
+                point.field(f"deviation_pct_{feature}", float(severities.get(feature, 0) * 100))
+            
+            # Write to InfluxDB
+            self.write_api.write(bucket=self.anomaly_bucket, record=point)
+            
+            print(f"[Inference] ✅ Anomaly logged to InfluxDB: {workspace_id} - {primary_anomaly} (severity: {max_severity:.2f})")
+            print(f"            Affected features: {', '.join(at_risk_features)}")
+            
+        except Exception as e:
+            print(f"[Inference] ❌ Failed to log anomaly to InfluxDB: {e}")
