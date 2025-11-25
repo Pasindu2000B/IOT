@@ -117,8 +117,21 @@ class InferenceService:
                 with open(latest_scaler, "rb") as f:
                     scaler = pickle.load(f)
                 
-                # Load model
-                model = PatchTSTForPrediction.from_pretrained(latest_model_dir)
+                # Load model - try multiple formats
+                model = None
+                
+                # Try loading as Hugging Face model first
+                try:
+                    model = PatchTSTForPrediction.from_pretrained(latest_model_dir)
+                except:
+                    # Try loading as plain PyTorch .pt file
+                    pt_file = os.path.join(latest_model_dir, "pytorch_model.bin")
+                    if os.path.exists(pt_file):
+                        import torch
+                        model = torch.load(pt_file, map_location=self.device, weights_only=False)
+                    else:
+                        raise Exception("No valid model file found")
+                
                 model.to(self.device)
                 model.eval()
                 
