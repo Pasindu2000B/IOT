@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IOT Predictive Maintenance Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .status-bar {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .status-item {
+            text-align: center;
+            padding: 10px;
+        }
+
+        .status-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .status-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .status-value.online {
+            color: #10b981;
+        }
+
+        .status-value.offline {
+            color: #ef4444;
+        }
+
+        .workspace-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .workspace-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .workspace-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+        }
+
+        .workspace-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .workspace-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .workspace-status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .status-normal {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-critical {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-loading {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .predictions-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .prediction-item {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .prediction-label {
+            font-size: 0.85em;
+            color: #64748b;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        .prediction-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #1e293b;
+        }
+
+        .prediction-trend {
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        .trend-up {
+            color: #ef4444;
+        }
+
+        .trend-down {
+            color: #10b981;
+        }
+
+        .trend-stable {
+            color: #6b7280;
+        }
+
+        .chart-container {
+            margin-top: 20px;
+            height: 250px;
+            position: relative;
+        }
+
+        .anomaly-alert {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            display: none;
+            animation: pulse 2s infinite;
+        }
+
+        .anomaly-alert.show {
+            display: block;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        .last-updated {
+            text-align: center;
+            color: white;
+            font-size: 0.9em;
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .error-message {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .refresh-btn:active {
+            transform: translateY(0);
+        }
+
+        @media (max-width: 768px) {
+            .workspace-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .predictions-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .status-bar {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏭 IOT Predictive Maintenance Dashboard</h1>
+            <p class="subtitle">Real-time Machine Condition Monitoring & Anomaly Detection</p>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-label">System Status</div>
+                <div class="status-value" id="systemStatus">Connecting...</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Active Workspaces</div>
+                <div class="status-value" id="workspaceCount">-</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Inference Interval</div>
+                <div class="status-value" id="inferenceInterval">-</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Last Update</div>
+                <div class="status-value" id="lastUpdate">-</div>
+            </div>
+            <div class="status-item">
+                <button class="refresh-btn" onclick="refreshDashboard()">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <div id="workspaceContainer" class="workspace-grid">
+            <div class="loading">Loading workspace data...</div>
+        </div>
+
+        <div class="last-updated">
+            Auto-refreshing every 60 seconds | Data from InfluxDB (VM: 142.93.220.152:8086)
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = window.location.origin; // Uses same host as dashboard
+        let charts = {};
+        let refreshInterval;
+
+        // Initialize dashboard
+        async function initDashboard() {
+            try {
+                // Get system status
+                const statusResponse = await fetch(`${API_BASE_URL}/inference/status`);
+                const statusData = await statusResponse.json();
+                
+                document.getElementById('systemStatus').textContent = 'Online';
+                document.getElementById('systemStatus').classList.add('online');
+                document.getElementById('workspaceCount').textContent = statusData.available_models.length;
+                document.getElementById('inferenceInterval').textContent = `${statusData.interval_seconds}s`;
+
+                // Get workspaces
+                const workspacesResponse = await fetch(`${API_BASE_URL}/workspaces`);
+                const workspacesData = await workspacesResponse.json();
+                
+                if (workspacesData.status === 'success') {
+                    await loadWorkspaces(workspacesData.workspaces_with_models);
+                }
+
+                updateLastUpdateTime();
+            } catch (error) {
+                console.error('Error initializing dashboard:', error);
+                document.getElementById('systemStatus').textContent = 'Offline';
+                document.getElementById('systemStatus').classList.add('offline');
+                showError('Failed to connect to inference API. Make sure the server is running on port 8000.');
+            }
+        }
+
+        // Load workspace cards
+        async function loadWorkspaces(workspaces) {
+            const container = document.getElementById('workspaceContainer');
+            container.innerHTML = '';
+
+            for (const workspace of workspaces) {
+                await loadWorkspaceData(workspace, container);
+            }
+        }
+
+        // Load data for specific workspace
+        async function loadWorkspaceData(workspaceId, container) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/predict/${workspaceId}`);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    const card = createWorkspaceCard(workspaceId, data.predictions);
+                    container.appendChild(card);
+                } else {
+                    const card = createLoadingCard(workspaceId, data.message);
+                    container.appendChild(card);
+                }
+            } catch (error) {
+                console.error(`Error loading ${workspaceId}:`, error);
+                const card = createErrorCard(workspaceId);
+                container.appendChild(card);
+            }
+        }
+
+        // Create workspace card with predictions
+        function createWorkspaceCard(workspaceId, predictions) {
+            const card = document.createElement('div');
+            card.className = 'workspace-card';
+            card.id = `card-${workspaceId}`;
+
+            // Calculate anomaly status
+            const avgAnomaly = predictions.anomaly_scores.reduce((a, b) => a + b, 0) / predictions.anomaly_scores.length;
+            const maxAnomaly = Math.max(...predictions.anomaly_scores);
+            
+            let status = 'normal';
+            let statusText = '✓ Normal';
+            if (maxAnomaly > 0.7) {
+                status = 'critical';
+                statusText = '⚠️ Critical';
+            } else if (maxAnomaly > 0.5) {
+                status = 'warning';
+                statusText = '⚡ Warning';
+            }
+
+            // Get latest values (last prediction)
+            const latestIdx = predictions.current.length - 1;
+            const current = predictions.current[latestIdx].toFixed(2);
+            const tempA = predictions.tempA[latestIdx].toFixed(1);
+            const tempB = predictions.tempB[latestIdx].toFixed(1);
+            const accX = predictions.accX[latestIdx].toFixed(4);
+            const accY = predictions.accY[latestIdx].toFixed(4);
+            const accZ = predictions.accZ[latestIdx].toFixed(4);
+
+            // Calculate trends (compare first vs last prediction)
+            const currentTrend = calculateTrend(predictions.current);
+            const tempTrend = calculateTrend(predictions.tempA);
+
+            card.innerHTML = `
+                <div class="workspace-header">
+                    <div class="workspace-title">🏭 ${formatWorkspaceName(workspaceId)}</div>
+                    <div class="workspace-status status-${status}">${statusText}</div>
+                </div>
+
+                <div class="predictions-grid">
+                    <div class="prediction-item">
+                        <div class="prediction-label">⚡ Current</div>
+                        <div class="prediction-value">${current} A</div>
+                        <div class="prediction-trend ${currentTrend.class}">${currentTrend.text}</div>
+                    </div>
+                    <div class="prediction-item">
+                        <div class="prediction-label">🌡️ Temperature A</div>
+                        <div class="prediction-value">${tempA} °C</div>
+                        <div class="prediction-trend ${tempTrend.class}">${tempTrend.text}</div>
+                    </div>
+                    <div class="prediction-item">
+                        <div class="prediction-label">🌡️ Temperature B</div>
+                        <div class="prediction-value">${tempB} °C</div>
+                    </div>
+                    <div class="prediction-item">
+                        <div class="prediction-label">📊 Anomaly Score</div>
+                        <div class="prediction-value">${maxAnomaly.toFixed(3)}</div>
+                    </div>
+                </div>
+
+                <div class="prediction-item" style="margin-bottom: 15px;">
+                    <div class="prediction-label">📉 Acceleration (X, Y, Z)</div>
+                    <div class="prediction-value" style="font-size: 1.1em;">
+                        ${accX}, ${accY}, ${accZ}
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="chart-${workspaceId}"></canvas>
+                </div>
+
+                <div class="anomaly-alert ${predictions.anomaly_detected ? 'show' : ''}">
+                    🚨 <strong>ANOMALY DETECTED!</strong> Machine may require maintenance soon.
+                </div>
+            `;
+
+            // Create chart after DOM is updated
+            setTimeout(() => {
+                createChart(workspaceId, predictions);
+            }, 100);
+
+            return card;
+        }
+
+        // Create chart for predictions
+        function createChart(workspaceId, predictions) {
+            const ctx = document.getElementById(`chart-${workspaceId}`);
+            if (!ctx) return;
+
+            // Destroy existing chart if exists
+            if (charts[workspaceId]) {
+                charts[workspaceId].destroy();
+            }
+
+            const timesteps = Array.from({length: predictions.current.length}, (_, i) => `T+${i+1}`);
+
+            charts[workspaceId] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timesteps,
+                    datasets: [
+                        {
+                            label: 'Current (A)',
+                            data: predictions.current,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Temperature A (°C)',
+                            data: predictions.tempA,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            label: 'Anomaly Score',
+                            data: predictions.anomaly_scores,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            tension: 0.4,
+                            borderDash: [5, 5],
+                            yAxisID: 'y2'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.parsed.y.toFixed(3);
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Current (A)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Temperature (°C)'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        },
+                        y2: {
+                            type: 'linear',
+                            display: false,
+                            min: 0,
+                            max: 1
+                        }
+                    }
+                }
+            });
+        }
+
+        // Create loading card
+        function createLoadingCard(workspaceId, message) {
+            const card = document.createElement('div');
+            card.className = 'workspace-card';
+            card.innerHTML = `
+                <div class="workspace-header">
+                    <div class="workspace-title">🏭 ${formatWorkspaceName(workspaceId)}</div>
+                    <div class="workspace-status status-loading">⏳ Loading</div>
+                </div>
+                <p style="color: #666; text-align: center; padding: 20px;">${message}</p>
+            `;
+            return card;
+        }
+
+        // Create error card
+        function createErrorCard(workspaceId) {
+            const card = document.createElement('div');
+            card.className = 'workspace-card';
+            card.innerHTML = `
+                <div class="workspace-header">
+                    <div class="workspace-title">🏭 ${formatWorkspaceName(workspaceId)}</div>
+                    <div class="workspace-status status-critical">❌ Error</div>
+                </div>
+                <p style="color: #991b1b; text-align: center; padding: 20px;">Failed to load predictions</p>
+            `;
+            return card;
+        }
+
+        // Calculate trend
+        function calculateTrend(values) {
+            const first = values[0];
+            const last = values[values.length - 1];
+            const change = ((last - first) / first * 100);
+
+            if (Math.abs(change) < 1) {
+                return { class: 'trend-stable', text: '→ Stable' };
+            } else if (change > 0) {
+                return { class: 'trend-up', text: `↑ +${change.toFixed(1)}%` };
+            } else {
+                return { class: 'trend-down', text: `↓ ${change.toFixed(1)}%` };
+            }
+        }
+
+        // Format workspace name
+        function formatWorkspaceName(id) {
+            return id.split('-').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+        }
+
+        // Update last update time
+        function updateLastUpdateTime() {
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
+        }
+
+        // Show error message
+        function showError(message) {
+            const container = document.getElementById('workspaceContainer');
+            container.innerHTML = `
+                <div class="error-message">
+                    <strong>⚠️ Error:</strong> ${message}
+                </div>
+            `;
+        }
+
+        // Refresh dashboard
+        async function refreshDashboard() {
+            await initDashboard();
+        }
+
+        // Auto-refresh every 60 seconds
+        function startAutoRefresh() {
+            refreshInterval = setInterval(() => {
+                refreshDashboard();
+            }, 60000);
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            initDashboard();
+            startAutoRefresh();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+            Object.values(charts).forEach(chart => chart.destroy());
+        });
+    </script>
+</body>
+</html>

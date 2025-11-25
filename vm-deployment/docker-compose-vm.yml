@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # MQTT Broker - receives sensor data
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: vm-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    mem_limit: 64m
+    mem_reservation: 32m
+    networks:
+      - iot-vm-network
+
+  # InfluxDB - time-series storage (minimal config)
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: vm-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+      - DOCKER_INFLUXDB_INIT_ORG=Ruhuna_Eng
+      - DOCKER_INFLUXDB_INIT_BUCKET=New_Sensor
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_zolPRjn7jUQ6irQk-BPe3LK9Q==
+      - INFLUXD_ENGINE_CACHE_MAX_MEMORY_SIZE=67108864  # 64MB cache
+      - INFLUXD_QUERY_CONCURRENCY=2
+      - INFLUXD_QUERY_QUEUE_SIZE=5
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    mem_limit: 256m
+    mem_reservation: 128m
+    networks:
+      - iot-vm-network
+
+  # Telegraf - forward data from VM to PC
+  telegraf:
+    image: telegraf:alpine
+    container_name: vm-telegraf
+    restart: unless-stopped
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    depends_on:
+      - influxdb
+    mem_limit: 64m
+    mem_reservation: 32m
+    networks:
+      - iot-vm-network
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  influxdb-data:
+  influxdb-config:
+
+networks:
+  iot-vm-network:
+    driver: bridge

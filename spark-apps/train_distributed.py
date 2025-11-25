@@ -32,34 +32,34 @@ INFLUXDB_TOKEN = "GO7pQ79-Vo-k6uwpQrMmJmITzLRHxyrFbFDrnRbz8PgZbLHKe5hpwNZCWi6Z_z
 INFLUXDB_ORG = "Ruhuna_Eng"
 INFLUXDB_BUCKET = "New_Sensor"
 
-# Model configuration (matching notebook specifications)
+# Model configuration (REDUCED FOR TESTING - only 2 hours of data available)
 MODEL_CONFIG = {
-    "context_length": 1200,         # 50 days of hourly data
-    "prediction_length": 240,        # 10 days of hourly predictions
+    "context_length": 50,            # Reduced from 1200 for testing
+    "prediction_length": 10,         # Reduced from 240 for testing
     "num_input_channels": 6,         # current, accX, accY, accZ, tempA, tempB
     "num_targets": 6,                # Same 6 features for output
     "num_attention_heads": 4,
     "num_hidden_layers": 2,
-    "patch_length": 12,
-    "patch_stride": 3,
-    "d_model": 256,
-    "ffn_dim": 512,
+    "patch_length": 5,               # Reduced from 12
+    "patch_stride": 2,               # Reduced from 3
+    "d_model": 128,                  # Reduced from 256
+    "ffn_dim": 256,                  # Reduced from 512
     "dropout": 0.1,
     "loss": "mse",
     "scaling": None  # We'll use MinMaxScaler instead
 }
 
-# Training configuration (matching notebook)
+# Training configuration (REDUCED FOR TESTING)
 TRAINING_CONFIG = {
-    "batch_size": 128,
-    "num_epochs": 20,
-    "learning_rate": 1e-5,
+    "batch_size": 16,                # Reduced from 128 for smaller dataset
+    "num_epochs": 5,                 # Reduced from 20 for quick testing
+    "learning_rate": 1e-4,           # Increased from 1e-5 for faster convergence
     "max_grad_norm": 1.0,
-    "early_stopping_patience": 5
+    "early_stopping_patience": 3     # Reduced from 5
 }
 
 # Minimum data points required per workspace to train (context + prediction)
-MIN_DATA_POINTS = 1440  # At least 1 day of hourly data
+MIN_DATA_POINTS = 100  # Reduced for testing with limited data
 
 class SimplePatchTST(nn.Module):
     """
@@ -90,7 +90,7 @@ def get_spark_session():
     
     return spark
 
-def get_available_workspaces(hours_back=720):
+def get_available_workspaces(hours_back=2):
     """Query InfluxDB to get list of all workspaces with data"""
     logger.info(f"🔍 Discovering workspaces from last {hours_back} hours ({hours_back/24:.1f} days)...")
     
@@ -121,8 +121,8 @@ def get_available_workspaces(hours_back=720):
     logger.info(f"✅ Found {len(workspaces)} workspaces: {workspaces}")
     return workspaces
 
-def load_workspace_data(workspace_id, hours_back=720):
-    """Load sensor data for a specific workspace from InfluxDB (default: 30 days)"""
+def load_workspace_data(workspace_id, hours_back=2):
+    """Load sensor data for a specific workspace from InfluxDB (reduced to 2 hours for testing)"""
     client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
     query_api = client.query_api()
     

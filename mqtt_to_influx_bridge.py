@@ -52,11 +52,11 @@ last_log_time = time.time()
 def on_connect(client, userdata, flags, rc):
     """Callback when connected to MQTT broker"""
     if rc == 0:
-        logger.info(f"✅ Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+        logger.info(f"[OK] Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
         client.subscribe(MQTT_TOPIC)
-        logger.info(f"✅ Subscribed to topic: {MQTT_TOPIC}")
+        logger.info(f"[OK] Subscribed to topic: {MQTT_TOPIC}")
     else:
-        logger.error(f"❌ Connection failed with code {rc}")
+        logger.error(f"[ERROR] Connection failed with code {rc}")
 
 def on_message(client, userdata, msg):
     """Callback when MQTT message received"""
@@ -85,18 +85,18 @@ def on_message(client, userdata, msg):
         # Log every 10 seconds instead of every message to reduce noise
         current_time = time.time()
         if current_time - last_log_time >= 10:
-            logger.info(f"📊 Processed {message_count} messages total | Latest: workspace={payload.get('workspace_id')}")
+            logger.info(f"[INFO] Processed {message_count} messages total | Latest: workspace={payload.get('workspace_id')}")
             last_log_time = current_time
         
     except json.JSONDecodeError as e:
-        logger.error(f"❌ JSON decode error: {e}")
+        logger.error(f"[ERROR] JSON decode error: {e}")
     except Exception as e:
-        logger.error(f"❌ Error processing message: {e}")
+        logger.error(f"[ERROR] Error processing message: {e}")
 
 def on_disconnect(client, userdata, rc):
     """Callback when disconnected from MQTT broker"""
     if rc != 0:
-        logger.warning(f"⚠️  Unexpected disconnection (RC: {rc}). Will attempt to reconnect...")
+        logger.warning(f"[WARN] Unexpected disconnection (RC: {rc}). Will attempt to reconnect...")
     else:
         logger.info("Disconnected from MQTT broker")
 
@@ -128,22 +128,22 @@ def main():
     
     while not connected and retry_count < max_retries:
         try:
-            logger.info(f"🔄 Connecting to MQTT broker (attempt {retry_count + 1}/{max_retries})...")
+            logger.info(f"[>>] Connecting to MQTT broker (attempt {retry_count + 1}/{max_retries})...")
             client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
             connected = True
         except Exception as e:
             retry_count += 1
-            logger.warning(f"⚠️  Connection failed: {e}")
+            logger.warning(f"[WARN] Connection failed: {e}")
             if retry_count < max_retries:
-                logger.info(f"🔄 Retrying in {RECONNECT_DELAY} seconds...")
+                logger.info(f"[>>] Retrying in {RECONNECT_DELAY} seconds...")
                 time.sleep(RECONNECT_DELAY)
             else:
-                logger.error("❌ Max connection retries reached. Exiting.")
+                logger.error("[ERROR] Max connection retries reached. Exiting.")
                 influx_client.close()
                 return
     
     # Start MQTT loop with automatic reconnection
-    logger.info("✅ Bridge is running. Press Ctrl+C to exit.")
+    logger.info("[OK] Bridge is running. Press Ctrl+C to exit.")
     logger.info("=" * 60)
     
     try:
@@ -151,14 +151,14 @@ def main():
         client.loop_forever(retry_first_connection=True)
     except KeyboardInterrupt:
         logger.info("\n" + "=" * 60)
-        logger.info("⏹️  Shutting down bridge...")
+        logger.info("[INFO] Shutting down bridge...")
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}")
+        logger.error(f"[ERROR] Unexpected error: {e}")
     finally:
         client.disconnect()
         influx_client.close()
-        logger.info(f"📊 Total messages processed: {message_count}")
-        logger.info("✅ Bridge stopped gracefully")
+        logger.info(f"[INFO] Total messages processed: {message_count}")
+        logger.info("[OK] Bridge stopped gracefully")
         logger.info("=" * 60)
 
 if __name__ == "__main__":

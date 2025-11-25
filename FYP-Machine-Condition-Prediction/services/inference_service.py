@@ -14,9 +14,10 @@ from configs.mongodb_config import get_database, workspace_id
 
 class InferenceService:
     def __init__(self):
-        # Define paths and device
+        # Define paths and device  
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        self.base_dir = os.path.join(current_dir, "..", "AI-Model-Artifacts")
+        parent_dir = os.path.dirname(current_dir)  # Go up from services/ to FYP-Machine-Condition-Prediction/
+        self.base_dir = os.path.join(parent_dir, "FYP-Machine-Condition-Prediction")
         self.base_dir = os.path.abspath(self.base_dir)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
@@ -24,14 +25,15 @@ class InferenceService:
         self.models = {}  # {workspace_id: model}
         self.scalers = {}  # {workspace_id: scaler}
         self.model_timestamps = {}  # {workspace_id: timestamp}
+        self.latest_predictions = {}  # {workspace_id: {"forecast": array, "timestamp": datetime}}
         
         # Load all available workspace models
         self._load_all_workspace_models()
         
-        # MongoDB connection
-        self.db = get_database()
-        self.users_collection = self.db["users"] if self.db else None
-        self.workspaces_collection = self.db["workspaces"] if self.db else None
+        # MongoDB disabled - not needed for direct InfluxDB inference
+        self.db = None
+        self.users_collection = None
+        self.workspaces_collection = None
     
     def _load_all_workspace_models(self):
         """Discover and load models for all available workspaces"""
@@ -49,14 +51,24 @@ class InferenceService:
         workspace_models = {}
         for model_dir in all_model_dirs:
             # Extract workspace_id from: model_{workspace}_{timestamp}
+            # Example: model_cnc-mill-5-axis_20251124_093154
             dir_name = os.path.basename(model_dir)
-            parts = dir_name.split('_')
+            
+            # Remove 'model_' prefix
+            name_parts = dir_name.replace('model_', '')
+            
+            # Split by underscore and remove last 2 parts (date_time timestamp)
+            parts = name_parts.split('_')
             if len(parts) >= 3:
-                # Handle workspace names with hyphens (e.g., lathe-1-spindle)
-                workspace_id = '_'.join(parts[1:-1])
-                if workspace_id not in workspace_models:
-                    workspace_models[workspace_id] = []
-                workspace_models[workspace_id].append(model_dir)
+                # Last 2 parts are timestamp (YYYYMMDD_HHMMSS), rest is workspace name
+                workspace_id = '_'.join(parts[:-2])
+            else:
+                # Fallback: use as-is
+                workspace_id = name_parts
+            
+            if workspace_id not in workspace_models:
+                workspace_models[workspace_id] = []
+            workspace_models[workspace_id].append(model_dir)
         
         # Load latest model for each workspace
         print(f"[InferenceService] Discovered {len(workspace_models)} workspace(s)")
@@ -107,12 +119,12 @@ class InferenceService:
         """Return list of workspaces with loaded models"""
         return list(self.models.keys())
 
-    def run_inference(self, workspace_id, retrieved_docs):
+    def run_inference(self, workspace_id, influx_data):
         """
-        Run the full inference pipeline: preprocess data, feed to model, detect anomalies, update DB, send email.
+        Run the full inference pipeline: preprocess data, feed to model, detect anomalies, send email.
         Args:
             workspace_id (str): The workspace to run inference for
-            retrieved_docs (list of dicts from MongoDB, last 1200).
+            influx_data (pandas DataFrame): Raw sensor data from InfluxDB with columns [current, accX, accY, accZ, tempA, tempB]
         Returns: forecast (np.array), alerts (dict with status and message).
         """
         # Check if model exists for this workspace
@@ -121,29 +133,31 @@ class InferenceService:
             print(f"[Inference] Available workspaces: {list(self.models.keys())}")
             return None, {"status": "error", "message": f"No model found for workspace {workspace_id}"}
         
-        if len(retrieved_docs) < 1200:
-            print(f"[Inference] Not enough data for {workspace_id} (need 1200, got {len(retrieved_docs)}). Skipping inference.")
+        if len(influx_data) < 50:  # Minimum required for reduced model
+            print(f"[Inference] Not enough data for {workspace_id} (need 50, got {len(influx_data)}). Skipping inference.")
             return None, {"status": "error", "message": "Not enough data for inference."}
         
-        print(f"[Inference] Running inference for workspace: {workspace_id}")
+        print(f"[Inference] Running inference for workspace: {workspace_id} with {len(influx_data)} data points")
         
         # Get model and scaler for this workspace
         model = self.models[workspace_id]
         scaler = self.scalers[workspace_id]
         
-        # Step 1: Extract features (IOT format: 6 features)
-        raw_data = pd.DataFrame([
-            [doc['current_mean'], doc['accX_mean'], doc['accY_mean'], 
-             doc['accZ_mean'], doc['tempA_mean'], doc['tempB_mean']]
-            for doc in retrieved_docs
-        ], columns=['current', 'accX', 'accY', 'accZ', 'tempA', 'tempB'])
+        # Step 1: Use raw InfluxDB data directly (already has correct columns)
+        raw_data = influx_data[['current', 'accX', 'accY', 'accZ', 'tempA', 'tempB']]
         
         # Step 2: Scale data
         scaled_data = scaler.transform(raw_data)
         scaled_data = np.clip(scaled_data, 0, 1)
         
-        # Step 3: Reshape for model (IOT model expects 6 features)
-        model_input = scaled_data.reshape(1, 1200, 6)
+        # Step 3: Reshape for model (use last 50 points for reduced model)
+        context_length = 50  # Must match trained model context_length
+        if len(scaled_data) < context_length:
+            print(f"[Inference] Not enough data after processing (need {context_length}, got {len(scaled_data)})")
+            return None, {"status": "error", "message": f"Need at least {context_length} data points"}
+        
+        # Take the most recent context_length points
+        model_input = scaled_data[-context_length:].reshape(1, context_length, 6)
         input_tensor = torch.tensor(model_input, dtype=torch.float32).to(self.device)
         
         # Step 4: Feed to model and get forecast
@@ -153,22 +167,22 @@ class InferenceService:
         
         # Step 5: Anomaly detection (IOT 6 features)
         num_features = 6
-        horizon = 240
+        horizon = 10  # Reduced prediction horizon
         feature_names = ['current', 'accX', 'accY', 'accZ', 'tempA', 'tempB']
         at_risk_features = []
         
         for feature_idx in range(num_features):
-            forecast_feature = forecast[:, feature_idx]
-            max_lookback = np.max(scaled_data[:, feature_idx])
-            min_lookback = np.min(scaled_data[:, feature_idx])
+            forecast_feature = forecast[:, feature_idx] if forecast.ndim > 1 else forecast
+            max_lookback = np.max(scaled_data[-context_length:, feature_idx])
+            min_lookback = np.min(scaled_data[-context_length:, feature_idx])
             num_exceeding_max = np.sum(forecast_feature > max_lookback)
             num_below_min = np.sum(forecast_feature < min_lookback)
             total_anomalous = num_exceeding_max + num_below_min
             anomaly_percentage = (total_anomalous / horizon) * 100
             
-            print(f"[Inference] Feature {feature_idx}: Anomaly % = {anomaly_percentage:.2f}%")
+            print(f"[Inference] Feature {feature_names[feature_idx]}: Anomaly % = {anomaly_percentage:.2f}%")
             
-            if anomaly_percentage >= -30:
+            if anomaly_percentage >= 30:  # Alert if 30% or more anomalous
                 at_risk_features.append(feature_names[feature_idx])
         
         # Determine alert message
@@ -180,20 +194,7 @@ class InferenceService:
             overall_at_risk = False
             alert_message = f"Machine Condition Normal (Checked at: {current_time})"
         
-        # Step 6: Update MongoDB with alert
-        if self.db:
-            collection = self.db[f"hourly_means_{workspace_id}"]
-            latest_doc = collection.find_one(sort=[("_id", -1)])
-            if latest_doc:
-                collection.update_one(
-                    {"_id": latest_doc["_id"]},
-                    {"$set": {"alert_message": alert_message}}
-                )
-                print(f"[Inference] Alert message for {workspace_id}: '{alert_message}'")
-            else:
-                print(f"[Inference] No documents found in 'hourly_means_{workspace_id}' collection.")
-        else:
-            print("[Inference] Database connection failed.")
+        print(f"[Inference] Alert for {workspace_id}: '{alert_message}'")
         
         # Step 7: Send email if at risk (from notebook Cell 10)
         # if overall_at_risk:
@@ -241,6 +242,15 @@ class InferenceService:
         else:
             print("[Inference] No email sent (machine condition normal).")
         
+        # Store the latest predictions with timestamp
+        self.latest_predictions[workspace_id] = {
+            "forecast": forecast.tolist(),  # Convert numpy array to list for JSON serialization
+            "timestamp": current_time,
+            "alert_message": alert_message,
+            "at_risk": overall_at_risk,
+            "at_risk_features": at_risk_features
+        }
+        
         return forecast, {"status": "success", "message": alert_message}
 
     def get_emails_for_workspace(self, workspace_id):
@@ -276,3 +286,32 @@ class InferenceService:
                     print(f"[Inference] User {user_id} not found or has no email.")
             
         return emails
+    
+    def get_latest_predictions(self, workspace_id):
+        """
+        Get the most recent predictions for a workspace.
+        Returns dict with forecast array, timestamp, and alert info.
+        """
+        if workspace_id not in self.latest_predictions:
+            return None
+        
+        prediction_data = self.latest_predictions[workspace_id]
+        
+        # Format predictions nicely
+        forecast = np.array(prediction_data["forecast"])
+        feature_names = ['current', 'accX', 'accY', 'accZ', 'tempA', 'tempB']
+        
+        # Create structured output
+        predictions_by_feature = {}
+        for idx, feature in enumerate(feature_names):
+            predictions_by_feature[feature] = forecast[:, idx].tolist()
+        
+        return {
+            "timestamp": prediction_data["timestamp"],
+            "alert_status": "At Risk" if prediction_data["at_risk"] else "Normal",
+            "alert_message": prediction_data["alert_message"],
+            "at_risk_features": prediction_data["at_risk_features"],
+            "predictions": predictions_by_feature,
+            "prediction_horizon": len(forecast),
+            "note": "Predictions show next 10 timesteps (~20 seconds at 2s/sample)"
+        }

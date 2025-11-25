@@ -1,171 +1,121 @@
 # python main.py
 
 from fastapi import FastAPI, Query
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from services.real_influx_streamer import RealInfluxStreamer
-from services.statistics_service import StatisticsService
-from collections import deque
 import threading
+import os
 
 app = FastAPI()
-streamer = RealInfluxStreamer(interval_seconds=10, max_points=360)
-stats_service = StatisticsService()
+
+# Mount static files directory for dashboard
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Initialize streamer with 60-second interval and 10-minute lookback
+streamer = RealInfluxStreamer(interval_seconds=60, lookback_minutes=10)
 
 
 @app.get("/workspaces")
 def get_available_workspaces():
     """
-    Return list of all currently monitored workspaces.
+    Return list of all workspaces with loaded inference models.
     """
-    workspaces = streamer.get_available_workspaces()
-    models = streamer.inference_service.get_available_workspaces()
+    models = streamer.get_available_workspaces()
     return {
         "status": "success",
-        "active_workspaces": workspaces,
-        "models_available": models,
-        "total_active": len(workspaces),
+        "workspaces_with_models": models,
         "total_models": len(models)
     }
 
+@app.get("/inference/status")
+def get_inference_status():
+    """
+    Get current inference configuration and status.
+    """
+    return {
+        "status": "success",
+        "interval_seconds": streamer.interval,
+        "lookback_minutes": streamer.lookback_minutes,
+        "available_models": streamer.get_available_workspaces(),
+        "message": "Inference running directly from InfluxDB data"
+    }
 
-@app.get("/sensor/means-history-db")
-def get_means_history_from_db(workspace_id: str = Query(None, description="Specific workspace ID, or omit for all")):
+@app.get("/predict/{workspace_id}")
+def get_latest_predictions(workspace_id: str):
     """
-    Return recent mean values from MongoDB for a specific workspace or all workspaces.
+    Get the latest predictions for a specific workspace.
+    Returns the most recent forecast made by the model.
     """
-    data = streamer.get_recent_means_from_db(workspace_id=workspace_id)
+    predictions = streamer.inference_service.get_latest_predictions(workspace_id)
     
-    if workspace_id:
+    if predictions is None:
         return {
-            "status": "success",
-            "workspace_id": workspace_id,
-            "means_collected": len(data),
-            "data": data
+            "status": "error",
+            "message": f"No predictions available for {workspace_id}. Wait for inference cycle."
         }
-    else:
-        return {
-            "status": "success",
-            "workspaces": list(data.keys()) if isinstance(data, dict) else [],
-            "data": data
-        }
+    
+    return {
+        "status": "success",
+        "workspace_id": workspace_id,
+        "predictions": predictions,
+        "message": "Predictions show next 10 timesteps for all 6 sensor features"
+    }
+
 
 @app.on_event("startup")
 def start_background_stream():
     """
-    Start the 10-second fake data generator in the background.
+    Start the inference engine that continuously monitors InfluxDB.
     """
     thread = threading.Thread(target=streamer.start_stream, daemon=True)
     thread.start()
-    print("Background data streaming process started.")
+    print("[Main] Inference engine started - monitoring InfluxDB every 60 seconds")
 
-@app.get("/sensor/latest")
-def get_latest_sensor_point(workspace_id: str = Query(None, description="Specific workspace ID")):
+@app.get("/", response_class=HTMLResponse)
+def root():
     """
-    Return the most recent datapoint for a workspace or all workspaces.
+    Serve the dashboard HTML page.
     """
-    if workspace_id:
-        buffer = streamer.workspace_buffers.get(workspace_id, deque())
-        latest = buffer[-1] if buffer else None
-        return {
-            "status": "success",
-            "workspace_id": workspace_id,
-            "msg": "Latest data retrieved successfully",
-            "data": latest
-        }
+    dashboard_path = os.path.join(os.path.dirname(__file__), "static", "dashboard.html")
+    if os.path.exists(dashboard_path):
+        with open(dashboard_path, 'r', encoding='utf-8') as f:
+            return f.read()
     else:
-        latest_all = {}
-        for ws_id, buffer in streamer.workspace_buffers.items():
-            latest_all[ws_id] = buffer[-1] if buffer else None
-        return {
-            "status": "success",
-            "msg": "Latest data for all workspaces",
-            "data": latest_all
-        }
+        return """
+        <html>
+            <body style="font-family: Arial; padding: 50px; text-align: center;">
+                <h1>IOT Predictive Maintenance API</h1>
+                <p>Dashboard not found. Please check if static/dashboard.html exists.</p>
+                <p><a href="/docs">View API Documentation</a></p>
+            </body>
+        </html>
+        """
 
-@app.get("/sensor/history")
-def get_last_hour_points(workspace_id: str = Query(None, description="Specific workspace ID")):
+@app.get("/api")
+def api_info():
     """
-    Return the last hour of data points for a workspace or all workspaces.
-    """
-    data = streamer.get_last_360_points(workspace_id=workspace_id)
-    
-    if workspace_id:
-        return {
-            "status": "success",
-            "workspace_id": workspace_id,
-            "points_collected": len(data),
-            "data": data
-        }
-    else:
-        return {
-            "status": "success",
-            "workspaces": list(data.keys()),
-            "data": data
-        }
-
-@app.get("/sensor/hourly-mean")
-def get_hourly_mean(workspace_id: str = Query(None, description="Specific workspace ID")):
-    """
-    Compute hourly mean for a specific workspace or all workspaces.
-    """
-    if workspace_id:
-        data = streamer.get_last_360_points(workspace_id=workspace_id)
-        if not data or len(data) < 360:
-            return {
-                "status": "error",
-                "workspace_id": workspace_id,
-                "msg": f"Not enough data points yet (need 360, have {len(data) if data else 0})."
-            }
-        mean_values = stats_service.compute_hourly_mean(data)
-        return {
-            "status": "success",
-            "workspace_id": workspace_id,
-            "hourly_mean": mean_values
-        }
-    else:
-        all_data = streamer.get_last_360_points()
-        results = {}
-        for ws_id, data in all_data.items():
-            if data and len(data) >= 360:
-                results[ws_id] = stats_service.compute_hourly_mean(data)
-        return {
-            "status": "success",
-            "workspaces": list(results.keys()),
-            "hourly_means": results
-        }
-
-@app.get("/sensor/means-history")
-def get_means_history(workspace_id: str = Query(None, description="Specific workspace ID")):
-    """
-    Return the list of automatically calculated mean values.
-    Note: This endpoint returns in-memory data, use /sensor/means-history-db for MongoDB data.
+    API information endpoint.
     """
     return {
-        "status": "info",
-        "msg": "In-memory tracking removed. Use /sensor/means-history-db instead."
+        "service": "IOT Predictive Maintenance Inference API",
+        "version": "2.0",
+        "mode": "Direct InfluxDB Inference",
+        "endpoints": {
+            "/": "Interactive dashboard",
+            "/workspaces": "List workspaces with trained models",
+            "/inference/status": "Get inference engine status",
+            "/predict/{workspace_id}": "Get predictions for specific workspace",
+            "/docs": "Interactive API documentation"
+        }
     }
 
-@app.get("/sensor/last-lookback")
-def get_last_lookback(workspace_id: str = Query(None, description="Specific workspace ID")):
-    """
-    Retrieve the last 1200 mean values from MongoDB for a workspace or all workspaces.
-    """
-    data = streamer.get_last_lookback(workspace_id=workspace_id)
-    
-    if workspace_id:
-        return {
-            "status": "success",
-            "workspace_id": workspace_id,
-            "means_collected": len(data),
-            "data": data
-        }
-    else:
-        return {
-            "status": "success",
-            "workspaces": list(data.keys()) if isinstance(data, dict) else [],
-            "data": data
-        }
 
-
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
 

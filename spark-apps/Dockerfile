@@ -9,17 +9,13 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages for training
-RUN pip3 install --no-cache-dir \
-    torch==2.0.1 \
-    transformers==4.35.0 \
-    accelerate==0.24.1 \
-    datasets==2.14.6 \
-    influxdb-client==1.38.0 \
-    pandas==2.1.1 \
-    numpy==1.24.3 \
-    scikit-learn==1.3.1 \
-    tqdm==4.66.1
+# Install Python packages for training (one by one for progress visibility)
+RUN pip3 install --no-cache-dir torch==2.0.1
+RUN pip3 install --no-cache-dir transformers==4.38.0
+RUN pip3 install --no-cache-dir accelerate==0.24.1
+RUN pip3 install --no-cache-dir datasets==2.14.6
+RUN pip3 install --no-cache-dir influxdb-client==1.38.0
+RUN pip3 install --no-cache-dir scikit-learn==1.3.1
 
 USER 185
 
