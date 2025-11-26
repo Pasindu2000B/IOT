@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Configuration for VM
 MQTT_BROKER = "142.93.220.152"
 MQTT_PORT = 1883
-MQTT_TOPIC = "machine_sensor_data"
+MQTT_TOPIC = "sensor/data"
 MQTT_USERNAME = "test"
 MQTT_PASSWORD = "test"
 
