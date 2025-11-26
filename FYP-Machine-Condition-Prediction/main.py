@@ -9,20 +9,18 @@ import os
 
 app = FastAPI()
 
-# Mount static files directory for dashboard
+
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-# Initialize streamer with 60-second interval and 10-minute lookback
-streamer = RealInfluxStreamer(interval_seconds=60, lookback_minutes=10)
+
+streamer = RealInfluxStreamer(interval_seconds=10, lookback_minutes=60)
 
 
 @app.get("/workspaces")
 def get_available_workspaces():
-    """
-    Return list of all workspaces with loaded inference models.
-    """
+    
     models = streamer.get_available_workspaces()
     return {
         "status": "success",
@@ -32,9 +30,7 @@ def get_available_workspaces():
 
 @app.get("/inference/status")
 def get_inference_status():
-    """
-    Get current inference configuration and status.
-    """
+   
     return {
         "status": "success",
         "interval_seconds": streamer.interval,
@@ -45,10 +41,7 @@ def get_inference_status():
 
 @app.get("/predict/{workspace_id}")
 def get_latest_predictions(workspace_id: str):
-    """
-    Get the latest predictions for a specific workspace.
-    Returns the most recent forecast made by the model.
-    """
+    
     predictions = streamer.inference_service.get_latest_predictions(workspace_id)
     
     if predictions is None:
@@ -66,27 +59,20 @@ def get_latest_predictions(workspace_id: str):
 
 @app.get("/validate/{workspace_id}")
 def validate_model(workspace_id: str):
-    """
-    Validate model accuracy by comparing predictions against actual future data.
-    Shows error metrics (MAE, RMSE, MAPE) to prove model is working correctly.
-    """
+   
     validation = streamer.validate_workspace_model(workspace_id)
     return validation
 
 @app.on_event("startup")
 def start_background_stream():
-    """
-    Start the inference engine that continuously monitors InfluxDB.
-    """
+   
     thread = threading.Thread(target=streamer.start_stream, daemon=True)
     thread.start()
     print("[Main] Inference engine started - monitoring InfluxDB every 60 seconds")
 
 @app.get("/", response_class=HTMLResponse)
 def root():
-    """
-    Serve the dashboard HTML page.
-    """
+    
     dashboard_path = os.path.join(os.path.dirname(__file__), "static", "dashboard.html")
     if os.path.exists(dashboard_path):
         with open(dashboard_path, 'r', encoding='utf-8') as f:
@@ -104,9 +90,7 @@ def root():
 
 @app.get("/validation", response_class=HTMLResponse)
 def validation_page():
-    """
-    Serve the validation page to compare predictions vs actual data.
-    """
+    
     validation_path = os.path.join(os.path.dirname(__file__), "static", "validation.html")
     if os.path.exists(validation_path):
         with open(validation_path, 'r', encoding='utf-8') as f:
@@ -123,9 +107,7 @@ def validation_page():
 
 @app.get("/api")
 def api_info():
-    """
-    API information endpoint.
-    """
+    
     return {
         "service": "IOT Predictive Maintenance Inference API",
         "version": "2.0",

@@ -17,14 +17,8 @@ influx_org = os.getenv("INFLUX_ORG", "Ruhuna_Eng")
 influx_bucket = os.getenv("INFLUX_BUCKET", "New_Sensor")
 
 class RealInfluxStreamer:
-    def __init__(self, interval_seconds=60, lookback_minutes=10):
-        """
-        Initialize streamer to directly fetch data from InfluxDB and run inference.
-        
-        Args:
-            interval_seconds: How often to run inference (default: 60 seconds)
-            lookback_minutes: How much historical data to fetch for inference (default: 10 minutes)
-        """
+    def __init__(self, interval_seconds=10, lookback_minutes=60):
+      
         self.influx_client = InfluxDBClient(
             url=influx_url, 
             token=influx_token, 
@@ -34,7 +28,7 @@ class RealInfluxStreamer:
         self.interval = interval_seconds
         self.lookback_minutes = lookback_minutes
         
-        # Initialize inference service (loads all workspace models)
+    
         self.inference_service = InferenceService()
         
         print(f"[RealInfluxStreamer] Initialized for direct InfluxDB inference")
@@ -42,7 +36,7 @@ class RealInfluxStreamer:
         print(f"[RealInfluxStreamer] Available workspaces: {self.inference_service.get_available_workspaces()}")
 
     def _get_available_workspaces_from_influx(self):
-        """Query InfluxDB to discover all active workspaces"""
+        
         query = f'''
         from(bucket: "{self.influx_bucket}")
           |> range(start: -{self.lookback_minutes}m)
@@ -65,14 +59,7 @@ class RealInfluxStreamer:
             return []
     
     def _fetch_workspace_data(self, workspace_id, lookback_override=None):
-        """
-        Fetch raw sensor data directly from InfluxDB for a workspace.
-        Returns pandas DataFrame with columns: [timestamp, current, accX, accY, accZ, tempA, tempB]
-        
-        Args:
-            workspace_id: The workspace to fetch data for
-            lookback_override: Override the default lookback time (in minutes)
-        """
+       
         lookback = lookback_override if lookback_override else self.lookback_minutes
         
         query = f'''
@@ -92,6 +79,7 @@ class RealInfluxStreamer:
             result = self.influx_client.query_api().query(query)
             
             data_points = []
+            
             for table in result:
                 for record in table.records:
                     data_points.append({
@@ -117,15 +105,12 @@ class RealInfluxStreamer:
             return None
 
     def start_stream(self):
-        """
-        Continuously poll InfluxDB and run inference every interval.
-        Fetches data directly from InfluxDB without MongoDB buffer.
-        """
+        
         print(f"[RealInfluxStreamer] Starting direct InfluxDB inference (interval: {self.interval}s)...")
         
         while True:
             try:
-                # Discover active workspaces
+                
                 active_workspaces = self._get_available_workspaces_from_influx()
                 
                 if not active_workspaces:
@@ -160,20 +145,15 @@ class RealInfluxStreamer:
                 print(f"[RealInfluxStreamer] Error in stream loop: {e}")
             
             
-            # Wait before next inference cycle
             time.sleep(self.interval)
     
     def get_available_workspaces(self):
-        """Return list of available workspaces with loaded models"""
+       
         return self.inference_service.get_available_workspaces()
     
     def validate_workspace_model(self, workspace_id):
-        """
-        Validate a workspace model by comparing predictions vs actual data.
-        Uses historical data to test model accuracy.
-        """
-        # Fetch enough data for validation (need at least 60 points: 50 context + 10 prediction)
-        # Try progressively longer lookback times if needed
+       
+       
         for lookback_minutes in [3, 5, 10, 30]:
             data = self._fetch_workspace_data(workspace_id, lookback_override=lookback_minutes)
             
@@ -181,7 +161,7 @@ class RealInfluxStreamer:
                 print(f"[Validation] Using {len(data)} data points from last {lookback_minutes} minutes")
                 return self.inference_service.validate_model(workspace_id, data)
         
-        # If still not enough data, return error with details
+        
         data_count = len(data) if data is not None else 0
         return {
             "status": "error", 
