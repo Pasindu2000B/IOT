@@ -10,12 +10,12 @@ import math
 from datetime import datetime
 import paho.mqtt.client as mqtt
 
-# MQTT Configuration
-MQTT_BROKER = "142.93.220.152"  # Your VM IP
+
+MQTT_BROKER = "142.93.220.152"  
 MQTT_PORT = 1883
 MQTT_TOPIC = "sensor/data"
 
-# Workspace configurations
+
 WORKSPACES = [
     "cnc-mill-5-axis",
     "lathe-1-spindle", 
@@ -36,13 +36,13 @@ class SensorDataGenerator:
             print(f"❌ Connection failed with code {rc}")
             
     def connect(self):
-        """Connect to MQTT broker"""
+        
         self.client.on_connect = self.on_connect
         try:
             self.client.connect(MQTT_BROKER, MQTT_PORT, 60)
             self.client.loop_start()
             
-            # Wait for connection
+            
             timeout = 5
             start = time.time()
             while not self.connected and (time.time() - start) < timeout:
@@ -71,7 +71,7 @@ class SensorDataGenerator:
         }
     
     def generate_anomaly_data(self, workspace, base_values, anomaly_type):
-        """Generate anomalous sensor data"""
+        
         data = self.generate_normal_data(workspace, base_values)
         
         if anomaly_type == "high_current":
@@ -100,7 +100,7 @@ class SensorDataGenerator:
             print(f"❌ Publish error: {e}")
             return False
     
-    def run(self, duration_minutes=None, interval_seconds=2):
+    def run(self, duration_minutes=None, interval_seconds=10):
         """
         Run data generation
         
@@ -136,6 +136,14 @@ class SensorDataGenerator:
                 "accZ": 0.12,
                 "tempA": 38.0,
                 "tempB": 36.0
+            },
+            "68889e4d171eff841cba171a": {
+                "current": 10.0,
+                "accX": 0.13,
+                "accY": 0.11,
+                "accZ": 0.16,
+                "tempA": 40.0,
+                "tempB": 38.0
             }
         }
         
