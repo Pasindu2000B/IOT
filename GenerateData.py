@@ -19,7 +19,8 @@ MQTT_TOPIC = "sensor/data"
 WORKSPACES = [
     "cnc-mill-5-axis",
     "lathe-1-spindle", 
-    "robot-arm-02"
+    "robot-arm-02",
+    "68889e4d171eff841cba171a"
 ]
 
 class SensorDataGenerator:
