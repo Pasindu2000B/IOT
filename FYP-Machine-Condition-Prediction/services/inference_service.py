@@ -160,7 +160,7 @@ class InferenceService:
         scaled_data = np.clip(scaled_data, 0, 1)
         
     
-        context_length = 360  
+        context_length = 1800 
         if len(scaled_data) < context_length:
             print(f"[Inference] Not enough data after processing (need {context_length}, got {len(scaled_data)})")
             return None, {"status": "error", "message": f"Need at least {context_length} data points"}
@@ -174,122 +174,15 @@ class InferenceService:
             outputs = model(past_values=input_tensor)
             forecast = outputs.prediction_outputs.squeeze().cpu().numpy()
         
-        # Step 5: Anomaly detection (IOT 6 features)
-        num_features = 6
-        horizon = 360  # Reduced prediction horizon
-        feature_names = ['current', 'accX', 'accY', 'accZ', 'tempA', 'tempB']
-        at_risk_features = []
-        
-        for feature_idx in range(num_features):
-            forecast_feature = forecast[:, feature_idx] if forecast.ndim > 1 else forecast
-            max_lookback = np.max(scaled_data[-context_length:, feature_idx])
-            min_lookback = np.min(scaled_data[-context_length:, feature_idx])
-            num_exceeding_max = np.sum(forecast_feature > max_lookback)
-            num_below_min = np.sum(forecast_feature < min_lookback)
-            total_anomalous = num_exceeding_max + num_below_min
-            anomaly_percentage = (total_anomalous / horizon) * 100
-            
-            print(f"[Inference] Feature {feature_names[feature_idx]}: Anomaly % = {anomaly_percentage:.2f}%")
-            
-            if anomaly_percentage >= 30:  # Alert if 30% or more anomalous
-                at_risk_features.append(feature_names[feature_idx])
-        
-        # Determine alert message
-        current_time = datetime.now().isoformat()
-        if at_risk_features:
-            overall_at_risk = True
-            alert_message = f"Machine at Risk: Stay alert on {', '.join(at_risk_features)} (Checked at: {current_time})"
-        else:
-            overall_at_risk = False
-            alert_message = f"Machine Condition Normal (Checked at: {current_time})"
-        
-        print(f"[Inference] Alert for {workspace_id}: '{alert_message}'")
-        
-        # Step 7: Log anomaly to InfluxDB if detected
-        if overall_at_risk:
-            # Prepare actual and predicted values for logging
-            actual_values = {feature_names[i]: float(scaled_data[-1, i]) for i in range(num_features)}
-            predicted_values = {feature_names[i]: float(forecast[0, i]) for i in range(num_features)}
-            
-            self._log_anomaly_to_influxdb(
-                workspace_id=workspace_id,
-                at_risk_features=at_risk_features,
-                alert_message=alert_message,
-                timestamp=current_time,
-                actual_values=actual_values,
-                predicted_values=predicted_values
-            )
-        
-       
-        
-        if overall_at_risk:
-            # Get recipient emails from workspace members
-            recipient_emails = self.get_emails_for_workspace(workspace_id)
-            if not recipient_emails:
-                print(f"[Inference] No emails found for workspace {workspace_id}. Skipping email.")
-            else:
-                from_email = "thisupun3@gmail.com"
-                subject = "Machine Condition Alert"
-                body = alert_message
-                
-                sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
-                if not sendgrid_api_key:
-                    print("[Inference] SendGrid API Key not found.")
-                else:
-                    for to_email in recipient_emails:
-                        message = Mail(from_email=from_email, to_emails=to_email, subject=subject, plain_text_content=body)
-                        try:
-                            sg = SendGridAPIClient(sendgrid_api_key)
-                            response = sg.send(message)
-                            print(f"[Inference] Email sent to {to_email}. Status code: {response.status_code}")
-                        except Exception as e:
-                            print(f"[Inference] Failed to send email to {to_email}: {str(e)}")
-        else:
-            print("[Inference] No email sent (machine condition normal).")
-        
         # Store the latest predictions with timestamp
+        current_time = datetime.now().isoformat()
         self.latest_predictions[workspace_id] = {
             "forecast": forecast.tolist(),  # Convert numpy array to list for JSON serialization
-            "timestamp": current_time,
-            "alert_message": alert_message,
-            "at_risk": overall_at_risk,
-            "at_risk_features": at_risk_features
+            "timestamp": current_time
         }
         
-        return forecast, {"status": "success", "message": alert_message}
+        return forecast, {"status": "success"}
 
-    def get_emails_for_workspace(self, workspace_id):
-        
-        if not self.workspaces_collection or not self.users_collection:
-            print("[Inference] Database collections not available.")
-            return []
-                   
-        # Convert workspace_id to ObjectId and query by _id
-        try:
-            workspace_oid = ObjectId(workspace_id)
-        except Exception as e:
-            print(f"[Inference] Invalid workspace_id format: {workspace_id}")
-            return []
-            
-        # Query workspaces collection for the workspace_id
-        workspace_doc = self.workspaces_collection.find_one({"_id": workspace_oid})
-        if not workspace_doc or "members" not in workspace_doc:
-            print(f"[Inference] Workspace {workspace_id} not found or has no members.")
-            return []
-        
-        emails = []
-        for member in workspace_doc["members"]:
-            user_id = member.get("user")  # Assuming 'user' field holds user ID
-            if user_id:
-                # Query users collection for email
-                user_doc = self.users_collection.find_one({"_id": user_id})  # Assuming _id is the user ID
-                if user_doc and "email" in user_doc:
-                    emails.append(user_doc["email"])
-                else:
-                    print(f"[Inference] User {user_id} not found or has no email.")
-            
-        return emails
-    
     def get_latest_predictions(self, workspace_id):
         
         if workspace_id not in self.latest_predictions:
@@ -308,12 +201,9 @@ class InferenceService:
         
         return {
             "timestamp": prediction_data["timestamp"],
-            "alert_status": "At Risk" if prediction_data["at_risk"] else "Normal",
-            "alert_message": prediction_data["alert_message"],
-            "at_risk_features": prediction_data["at_risk_features"],
             "predictions": predictions_by_feature,
             "prediction_horizon": len(forecast),
-            "note": "Predictions show next 10 timesteps (~20 seconds at 2s/sample)"
+            "note": "Predictions show next 60 minutes (~1800 timesteps at 2s/sample)"
         }
     
     def validate_model(self, workspace_id, influx_data):
@@ -387,72 +277,3 @@ class InferenceService:
             "overall_accuracy": float(accuracy),
             "note": "Validation compares model predictions against actual future values"
         }
-    
-    def _log_anomaly_to_influxdb(self, workspace_id, at_risk_features, alert_message, timestamp, actual_values, predicted_values):
-        """
-        Log detected anomaly to InfluxDB in separate 'Anomalies' bucket
-        
-        Args:
-            workspace_id: Workspace where anomaly detected
-            at_risk_features: List of features that triggered anomaly
-            alert_message: Human-readable alert message
-            timestamp: Detection timestamp
-            actual_values: Dict of actual sensor values {feature: value}
-            predicted_values: Dict of predicted sensor values {feature: value}
-        """
-        if not self.write_api:
-            print("[Inference] Anomaly logging disabled (no InfluxDB connection)")
-            return
-        
-        try:
-            # Calculate severity for each at-risk feature
-            severities = {}
-            for feature in at_risk_features:
-                actual = actual_values.get(feature, 0)
-                predicted = predicted_values.get(feature, 0)
-                # Severity = relative difference
-                if predicted != 0:
-                    severity = abs((actual - predicted) / predicted)
-                else:
-                    severity = abs(actual - predicted)
-                severities[feature] = severity
-            
-            # Overall severity (max of all at-risk features)
-            max_severity = max(severities.values()) if severities else 0
-            
-            # Primary anomaly type (feature with highest severity)
-            primary_anomaly = max(severities, key=severities.get) if severities else "unknown"
-            
-            # Build InfluxDB point
-            point = Point("anomaly_detections") \
-                .tag("workspace_id", workspace_id) \
-                .tag("anomaly_type", primary_anomaly) \
-                .tag("severity_level", "high" if max_severity > 0.5 else "medium" if max_severity > 0.3 else "low") \
-                .field("severity_score", float(max_severity)) \
-                .field("alert_message", alert_message) \
-                .field("affected_features", ",".join(at_risk_features))
-            
-            # Add actual values
-            for feature, value in actual_values.items():
-                point.field(f"actual_{feature}", float(value))
-            
-            # Add predicted values
-            for feature, value in predicted_values.items():
-                point.field(f"predicted_{feature}", float(value))
-            
-            # Add deviations for at-risk features
-            for feature in at_risk_features:
-                actual = actual_values.get(feature, 0)
-                predicted = predicted_values.get(feature, 0)
-                deviation = actual - predicted
-                point.field(f"deviation_{feature}", float(deviation))
-                point.field(f"deviation_pct_{feature}", float(severities.get(feature, 0) * 100))
-            
-            # Write to InfluxDB
-            self.write_api.write(bucket=self.anomaly_bucket, record=point)
-            
-            print(f"[Inference] ✅ Anomaly logged to InfluxDB: {workspace_id} - {primary_anomaly} (severity: {max_severity:.2f})")
-            print(f"            Affected features: {', '.join(at_risk_features)}")
-            
-        except Exception as e:
-            print(f"[Inference] ❌ Failed to log anomaly to InfluxDB: {e}")
